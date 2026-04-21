@@ -1,0 +1,16 @@
+# Dependency
+node_modules/
+
+# VPN Keys & Configs (Cực kỳ quan trọng)
+.idea/
+*.conf
+*.key
+privatekey
+
+# Database backups
+db/
+*.sql
+
+# OS files
+.DS_Store
+Thumbs.db

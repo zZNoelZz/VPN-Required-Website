@@ -222,6 +222,51 @@
         font-size: 0.98rem;
       }
     }
+    .btn-add-emp {
+      background-color: #28a745;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      margin-bottom: 15px;
+    }
+
+    .btn-add-emp:hover {
+      background-color: #218838;
+    }
+    .custom-modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.6);
+    }
+    .modal-content {
+      background-color: #fff;
+      margin: 10% auto;
+      padding: 25px;
+      border-radius: 8px;
+      width: 400px;
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    }
+    .modal-content h3 { margin-top: 0; color: #333; }
+    .modal-input {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    .modal-footer {
+      text-align: right;
+      margin-top: 15px;
+    }
+    .btn-cancel { background: #6c757d; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
+    .btn-confirm { background: #007bff; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
   </style>
 <body>
 <div class="dashboard-main">
@@ -258,6 +303,24 @@
   <div class="popup-content">
     <div id="popup-message">Đang thực hiện...</div>
     <button onclick="closePopup()">OK</button>
+  </div>
+</div>
+<div id="addEmployeeModal" class="custom-modal">
+  <div class="modal-content">
+    <h3>Đăng ký nhân viên mới</h3>
+    <form id="addEmployeeForm">
+      <input type="text" id="newName" class="modal-input" placeholder="Họ và tên" required />
+      <input type="text" id="newUsername" class="modal-input" placeholder="Username" required />
+      <input type="password" id="newPassword" class="modal-input" placeholder="Password" required />
+      <div style="display: flex; gap: 10px;">
+        <input type="number" id="newSalary" class="modal-input" placeholder="Lương" required />
+        <input type="number" id="newExtra" class="modal-input" placeholder="Phụ cấp" required />
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-cancel" onclick="closeModal()">Hủy</button>
+        <button type="submit" class="btn-confirm">Tạo & Phát Key</button>
+      </div>
+    </form>
   </div>
 </div>
 <script>
@@ -366,8 +429,10 @@
   const showManage = async () => {
     mainContent.innerHTML = `
     <h2>Quản lý nhân sự</h2>
+    <button id="btnAddNewEmployee" class="btn-add-emp" onclick="openModal()">+ Thêm nhân viên mới</button>
     <div id="user-table-wrap">Đang tải dữ liệu nhân sự...</div>
   `;
+
     try {
       const res = await fetch('/api/users');
       if (!res.ok) {
@@ -410,7 +475,62 @@
       document.getElementById('user-table-wrap').innerHTML = `<div style="color:#dc3545;">${e.message || 'Không tải được dữ liệu nhân sự :3'}</div>`;
     }
   };
+    function openModal() {
+    document.getElementById('addEmployeeModal').style.display = "block";
+  }
 
+    function closeModal() {
+    document.getElementById('addEmployeeModal').style.display = "none";
+  }
+
+    window.onclick = function(event) {
+    const modal = document.getElementById('addEmployeeModal');
+    if (event.target == modal) {
+    closeModal();
+  }
+  }
+
+    document.getElementById('addEmployeeForm').onsubmit = async (e) => {
+    e.preventDefault();
+
+    const payload = {
+    name: document.getElementById('newName').value,
+    username: document.getElementById('newUsername').value,
+    password: document.getElementById('newPassword').value,
+    salary: document.getElementById('newSalary').value,
+    extra: document.getElementById('newExtra').value,
+    role: 'employee'
+  };
+
+    try {
+    const response = await fetch('/api/add-employee', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+    const result = await response.json();
+
+    if (response.ok) {
+    alert(result.message);
+    if (result.downloadLink) {
+    const link = document.createElement('a');
+    link.href = result.downloadLink;
+    link.download = `wg_${payload.username}.conf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+    closeModal();
+    showManage();
+  } else {
+    alert('Lỗi: ' + (result.error || result.message));
+  }
+  } catch (err) {
+    console.error(err);
+    alert('Không thể kết nối đến server');
+  }
+  };
 </script>
 </body>
 </html>
