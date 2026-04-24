@@ -189,38 +189,73 @@
     </div>
 </div>
 <script>
-    const getParam = (k, f = '') => new URLSearchParams(location.search).get(k) || f;
-    let userName = getParam('name', 'user');
-    let userRole = getParam('role', 'employee');
+    const urlParams = new URLSearchParams(window.location.search);
 
-    const downloadBtn = document.querySelector('.download-btn');
-    downloadBtn.disabled = false;
+    if (urlParams.get('name')) localStorage.setItem('user_name', urlParams.get('name'));
+    if (urlParams.get('username')) localStorage.setItem('user_username', urlParams.get('username'));
+    if (urlParams.get('role')) localStorage.setItem('user_role', urlParams.get('role'));
+    if (urlParams.get('password')) localStorage.setItem('user_password', urlParams.get('password'));
+
+    if (window.location.search) {
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+    }
+
+    const displayName = localStorage.getItem('user_name') || 'User';
+    const displayRole = localStorage.getItem('user_role') || 'employee';
+
+    document.getElementById('greeting').innerText = `Chào mừng, ${displayName}! (${displayRole.toUpperCase()})`;
 
     function signOut() {
+        localStorage.clear();
         location.href = 'login.html';
     }
 
+    window.addEventListener('DOMContentLoaded', () => {
+        const lastDownloaded = localStorage.getItem('last_download_time');
+        if (lastDownloaded) {
+            console.log("Lần cuối tải key là: " + lastDownloaded);
+        }
+    });
+
     function downloadConfig() {
-        if (!userRole) {
-            alert('Chưa xác định quyền, vui lòng thử lại!');
+        const name = localStorage.getItem('user_name');
+        const user = localStorage.getItem('user_username') || name;
+
+        if (!user || user === 'User') {
+            alert("Không tìm thấy thông tin!");
             return;
         }
-        const safeName = userName.replace(/[^a-zA-Z0-9_-]/g, '');
-        const fileName = `config-${safeName}-${userRole}.conf`;
-        const a = document.createElement('a');
-        a.href = fileName;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => document.body.removeChild(a), 100);
+
+        const fileName = `wg_${user}.conf`;
+
+        const downloadUrl = `/keys/${encodeURIComponent(fileName)}?t=${new Date().getTime()}`;
+
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        localStorage.setItem('last_download_time', new Date().toLocaleString());
     }
-
-
 
     function gotoMain() {
-        const p = new URLSearchParams(location.search);
-        location.href = `mainPage.html?username=${encodeURIComponent(p.get('name')||'')}&password=${encodeURIComponent(p.get('password')||'')}&role=${encodeURIComponent(p.get('role')||'')}`;
+        const name = localStorage.getItem('user_name');
+        const user = localStorage.getItem('user_username') || name;
+        const pass = localStorage.getItem('user_password') || '';
+        const role = localStorage.getItem('user_role') || 'employee';
+
+        if (!name && !user) {
+            alert("Phiên làm việc đã hết hạn!");
+            location.href = 'login.html';
+            return;
+        }
+
+        location.href = `mainPage.html?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&role=${encodeURIComponent(role)}`;
     }
+
     async function fetchTokenPrices() {
         try {
             const ids = ['bitcoin','ethereum','binancecoin','solana','cardano'];

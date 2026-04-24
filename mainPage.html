@@ -165,7 +165,6 @@
     }
     .token-table {
       width: 100%;
-      max-width: 560px;
       border-collapse: collapse;
       margin-top: 10px;
       background: #f9fbfe;
@@ -222,20 +221,41 @@
         font-size: 0.98rem;
       }
     }
-    .btn-add-emp {
+    .btn-mana {
+      display: block;
+      width: fit-content;
       background-color: #28a745;
       color: white;
       padding: 10px 20px;
       border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+      margin: 0 0 12px 0;
+      transition: all 0.2s;
+    }
+
+    #editEmployeeBtn {
+      background-color: #f39c12;
+      margin-bottom: 12px;
+    }
+
+    .btn-delete {
+      background-color: #dc3545;
+      color: white;
+      padding: 8px 15px;
+      border: none;
       border-radius: 4px;
       cursor: pointer;
       font-weight: bold;
-      margin-bottom: 15px;
+      height: 38px;
+      transition: background 0.2s;
     }
 
-    .btn-add-emp:hover {
-      background-color: #218838;
+    .btn-delete:hover {
+      background-color: #a71d2a;
     }
+
     .custom-modal {
       display: none;
       position: fixed;
@@ -269,7 +289,9 @@
     .btn-confirm { background: #007bff; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
   </style>
 <body>
+
 <div class="dashboard-main">
+
   <nav class="sidebar">
     <div class="logo">
       <svg viewBox="0 0 40 40" fill="none">
@@ -292,6 +314,7 @@
     <button class="option" data-page="me"><span>🙋‍♂️</span> Tôi</button>
     <button class="option logout" onclick="logout()"><span>🚪</span> Logout</button>
   </nav>
+
   <main class="main-content" id="main-content">
     <h2>Dashboard</h2>
     <div>Chào mừng đến với Noeru Crypto Inc!<br>
@@ -299,12 +322,14 @@
     </div>
   </main>
 </div>
+
 <div class="popup" id="popup" style="display:none;">
   <div class="popup-content">
     <div id="popup-message">Đang thực hiện...</div>
     <button onclick="closePopup()">OK</button>
   </div>
 </div>
+
 <div id="addEmployeeModal" class="custom-modal">
   <div class="modal-content">
     <h3>Đăng ký nhân viên mới</h3>
@@ -323,16 +348,57 @@
     </form>
   </div>
 </div>
+
+<div id="editEmployeeModal" class="custom-modal">
+  <div class="modal-content">
+    <h3>Chỉnh sửa nhân viên</h3>
+    <form id="editEmployeeForm">
+      <input type="hidden" id="editId" />
+      <input type="text" id="editName" class="modal-input" placeholder="Họ và tên" required />
+      <input type="text" id="editUsername" class="modal-input" placeholder="Username" required />
+      <input type="password" id="editPassword" class="modal-input" placeholder="Password mới (để trống nếu giữ nguyên)" />
+
+      <select id="editRole" class="modal-input">
+        <option value="employee">Employee</option>
+        <option value="leader">Leader</option>
+        <option value="boss">Boss</option>
+      </select>
+
+      <div style="display: flex; gap: 10px;">
+        <input type="number" id="editSalary" class="modal-input" placeholder="Lương" required />
+        <input type="number" id="editExtra" class="modal-input" placeholder="Phụ cấp" required />
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+        <button type="button" class="btn-delete" id="btnDeleteEmployee">Xóa nhân viên</button>
+
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn-cancel" onclick="closeEditModal()">Hủy</button>
+          <button type="submit" class="btn-confirm">Lưu thay đổi</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
-  let myRole = '';
+  const urlParams = new URLSearchParams(window.location.search);
+
+  const usernameParam = urlParams.get('username') || '';
+  const passwordParam = urlParams.get('password') || '';
+  const roleParam = urlParams.get('role') || '';
+
+  if (window.location.search) {
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({}, document.title, cleanUrl);
+  }
+
+  let myRole = roleParam;
+
   window.addEventListener('DOMContentLoaded', async () => {
     try {
-      const res = await fetch('/api/my-role');
-      const data = await res.json();
-      myRole = data.role || '';
       const manageBtn = document.getElementById('manage-btn');
       if (myRole !== 'boss' && myRole !== 'leader') {
-        manageBtn.style.display = 'none';
+        if (manageBtn) manageBtn.style.display = 'none';
       }
     } catch {
       const manageBtn = document.getElementById('manage-btn');
@@ -340,11 +406,9 @@
     }
   });
 
-  const getParam = (k, f = '') => new URLSearchParams(location.search).get(k) || f;
-  const username = getParam('username'), password = getParam('password');
   const options = document.querySelectorAll('.sidebar .option:not(.logout)');
   const mainContent = document.getElementById('main-content');
-  let currentPage = 'dashboard';
+
   options.forEach(btn => {
     btn.onclick = () => {
       options.forEach(b => b.classList.remove('active'));
@@ -354,10 +418,7 @@
       else if (page === 'tokens') showTokens();
       else if (page === 'dashboard') showDashboard();
       else if (page === 'manage') showManage();
-      else {
-        showPopup('Đang thực hiện...');
-      }
-      currentPage = page;
+      else showPopup('Đang thực hiện...');
     };
   });
 
@@ -368,42 +429,43 @@
   const closePopup = () => {
     document.getElementById('popup').style.display = 'none';
   };
+
   const showMe = () => {
     mainContent.innerHTML = `
     <h2>Thông tin cá nhân</h2>
     <div class="user-info">
-      <strong>Username:</strong> <span>${username||''}</span><br>
-      <strong>Password:</strong> <span>${password||''}</span>
-    </div>
-  `;
+      <strong>Username:</strong> <span>${usernameParam}</span><br>
+      <strong>Password:</strong> <span>${passwordParam}</span>
+    </div>`;
   };
+
   const showDashboard = () => {
     mainContent.innerHTML = `
     <h2>Dashboard</h2>
     <div>Chào mừng đến với Noeru Crypto Inc!<br>
-    Hãy chọn một chức năng ở thanh bên trái để bắt đầu</div>
-  `;
+    Hãy chọn một chức năng ở thanh bên trái để bắt đầu</div>`;
   };
+
   const showTokens = () => {
     mainContent.innerHTML = `
     <h2>Giá tất cả token nổi bật</h2>
     <div id="token-table-wrap">
       <div>Đang tải dữ liệu giá token...</div>
-    </div>
-  `;
+    </div>`;
     fetchTokens();
   };
+
   const fetchTokens = async () => {
     try {
       const url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=15&page=1&sparkline=false';
       const res = await fetch(url), data = await res.json();
       const rows = data.map(coin =>
               `<tr>
-        <td><img src="${coin.image}" alt="${coin.symbol}" style="width:24px;height:24px;vertical-align:middle;border-radius:50%;margin-right:5px;">${coin.name} <span style="color:#888;font-size:0.98em;">(${coin.symbol.toUpperCase()})</span></td>
-        <td>$${coin.current_price.toLocaleString()}</td>
-        <td>$${coin.market_cap.toLocaleString()}</td>
-        <td>${coin.price_change_percentage_24h?.toFixed(2) ?? '0.00'}%</td>
-      </tr>`
+          <td><img src="${coin.image}" alt="${coin.symbol}" style="width:24px;height:24px;vertical-align:middle;border-radius:50%;margin-right:5px;">${coin.name} <span style="color:#888;font-size:0.98em;">(${coin.symbol.toUpperCase()})</span></td>
+          <td>$${coin.current_price.toLocaleString()}</td>
+          <td>$${coin.market_cap.toLocaleString()}</td>
+          <td>${coin.price_change_percentage_24h?.toFixed(2) ?? '0.00'}%</td>
+        </tr>`
       ).join('');
       document.getElementById('token-table-wrap').innerHTML = `
       <table class="token-table">
@@ -415,23 +477,30 @@
             <th>24h %</th>
           </tr>
         </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    `;
+        <tbody>${rows}</tbody>
+      </table>`;
     } catch {
       document.getElementById('token-table-wrap').innerHTML = `<div style="color:#dc3545;">Không tải được dữ liệu token</div>`;
     }
   };
+
   const logout = () => { location.href = 'login.html'; };
 
   const showManage = async () => {
     mainContent.innerHTML = `
     <h2>Quản lý nhân sự</h2>
-    <button id="btnAddNewEmployee" class="btn-add-emp" onclick="openModal()">+ Thêm nhân viên mới</button>
-    <div id="user-table-wrap">Đang tải dữ liệu nhân sự...</div>
-  `;
+    <div class="mana-toolbar" style="display: flex; gap: 10px; margin-bottom: 15px;">
+      <button id="btnAddNewEmployee" class="btn-mana" onclick="openModal()">+ Thêm nhân viên mới</button>
+      <button id="editEmployeeBtn" class="btn-mana btn-orange" style="display: none;" onclick="toggleEditMode()">Chỉnh sửa nhân viên</button>
+    </div>
+    <p id="editModeHint" style="display: none; color: #e74c3c; font-weight: bold; margin-top: 10px;">
+      * Chế độ chỉnh sửa: Hãy nhấp vào một nhân viên trong bảng để bắt đầu.
+    </p>
+    <div id="user-table-wrap"></div>`;
+
+    if (myRole === 'boss') {
+      document.getElementById('editEmployeeBtn').style.display = 'inline-block';
+    }
 
     try {
       const res = await fetch('/api/users');
@@ -441,23 +510,22 @@
       }
       const users = await res.json();
 
-      const rows = users.map(user => `
-      <tr>
-        <td>${user.id}</td>
+      const rows = users.map((user, index) => `
+      <tr data-id="${user.id}" class="employee-row">
+        <td style="font-weight: bold; color: var(--primary);">${index + 1}</td>
         <td>${user.name}</td>
         <td>${user.username}</td>
         <td>${user.password}</td>
         <td>${user.role}</td>
         <td>${user.salary}</td>
         <td>${user.extra}</td>
-      </tr>
-    `).join('');
+      </tr>`).join('');
 
       document.getElementById('user-table-wrap').innerHTML = `
-      <table class="token-table">
+      <table class="token-table" id="userTable">
         <thead>
           <tr>
-            <th>ID</th>
+            <th>STT</th>
             <th>Họ tên</th>
             <th>Username</th>
             <th>Password</th>
@@ -466,70 +534,142 @@
             <th>Thưởng</th>
           </tr>
         </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    `;
+        <tbody id="userTableBody">${rows}</tbody>
+      </table>`;
     } catch (e) {
       document.getElementById('user-table-wrap').innerHTML = `<div style="color:#dc3545;">${e.message || 'Không tải được dữ liệu nhân sự :3'}</div>`;
     }
   };
-    function openModal() {
-    document.getElementById('addEmployeeModal').style.display = "block";
+
+  let isEditMode = false;
+  function toggleEditMode() {
+    isEditMode = !isEditMode;
+    const hint = document.getElementById('editModeHint');
+    const rows = document.querySelectorAll('.employee-row');
+    const btn = document.getElementById('editEmployeeBtn');
+
+    if (isEditMode) {
+      hint.style.display = 'block';
+      btn.innerText = "Hủy chỉnh sửa";
+      btn.style.backgroundColor = "#6c757d";
+      rows.forEach(row => {
+        row.style.cursor = 'pointer';
+        row.style.backgroundColor = '#fff3cd';
+        row.onclick = function() { fetchAndOpenEditModal(this.getAttribute('data-id')); };
+      });
+    } else {
+      hint.style.display = 'none';
+      btn.innerText = "Chỉnh sửa nhân viên";
+      btn.style.backgroundColor = "#f39c12";
+      rows.forEach(row => {
+        row.style.cursor = 'default';
+        row.style.backgroundColor = '';
+        row.onclick = null;
+      });
+    }
   }
 
-    function closeModal() {
-    document.getElementById('addEmployeeModal').style.display = "none";
+  function openModal() { document.getElementById('addEmployeeModal').style.display = "block"; }
+  function closeModal() { document.getElementById('addEmployeeModal').style.display = "none"; }
+  function closeEditModal() {
+    document.getElementById('editEmployeeModal').style.display = "none";
+    if (isEditMode) toggleEditMode();
   }
 
-    window.onclick = function(event) {
-    const modal = document.getElementById('addEmployeeModal');
-    if (event.target == modal) {
-    closeModal();
-  }
+  async function fetchAndOpenEditModal(userId) {
+    const row = document.querySelector(`tr[data-id="${userId}"]`);
+    if (!row) return;
+    document.getElementById('editId').value = userId;
+    document.getElementById('editName').value = row.cells[1].innerText;
+    document.getElementById('editUsername').value = row.cells[2].innerText;
+    document.getElementById('editPassword').value = "";
+    document.getElementById('editRole').value = row.cells[4].innerText.toLowerCase();
+    document.getElementById('editSalary').value = row.cells[5].innerText.replace(/[$,]/g, '');
+    document.getElementById('editExtra').value = row.cells[6].innerText.replace(/[$,]/g, '');
+    document.getElementById('editEmployeeModal').style.display = "block";
   }
 
-    document.getElementById('addEmployeeForm').onsubmit = async (e) => {
-    e.preventDefault();
-
-    const payload = {
-    name: document.getElementById('newName').value,
-    username: document.getElementById('newUsername').value,
-    password: document.getElementById('newPassword').value,
-    salary: document.getElementById('newSalary').value,
-    extra: document.getElementById('newExtra').value,
-    role: 'employee'
+  window.onclick = function(event) {
+    if (event.target == document.getElementById('addEmployeeModal')) closeModal();
+    if (event.target == document.getElementById('editEmployeeModal')) closeEditModal();
   };
 
+  document.getElementById('addEmployeeForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+      name: document.getElementById('newName').value,
+      username: document.getElementById('newUsername').value,
+      password: document.getElementById('newPassword').value,
+      salary: document.getElementById('newSalary').value,
+      extra: document.getElementById('newExtra').value,
+      role: 'employee'
+    };
     try {
-    const response = await fetch('/api/add-employee', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
+      const response = await fetch('/api/add-employee', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (response.ok) {
+        alert(result.message);
+        if (result.downloadLink) {
+          const link = document.createElement('a');
+          link.href = result.downloadLink;
+          link.download = decodeURIComponent(result.downloadLink.split('/').pop());
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+        closeModal();
+        showManage();
+      } else alert('Lỗi: ' + (result.error || result.message));
+    } catch { alert('Không thể kết nối đến server'); }
+  };
 
-    const result = await response.json();
+  document.getElementById('editEmployeeForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+      id: document.getElementById('editId').value,
+      name: document.getElementById('editName').value,
+      username: document.getElementById('editUsername').value,
+      password: document.getElementById('editPassword').value,
+      role: document.getElementById('editRole').value,
+      salary: document.getElementById('editSalary').value,
+      extra: document.getElementById('editExtra').value
+    };
+    try {
+      const response = await fetch('/api/edit-employee', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (response.ok) {
+        alert(result.message);
+        closeEditModal();
+        showManage();
+      } else alert('Lỗi: ' + (result.error || result.message));
+    } catch { alert('Không thể kết nối đến server'); }
+  };
 
-    if (response.ok) {
-    alert(result.message);
-    if (result.downloadLink) {
-    const link = document.createElement('a');
-    link.href = result.downloadLink;
-    link.download = `wg_${payload.username}.conf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-    closeModal();
-    showManage();
-  } else {
-    alert('Lỗi: ' + (result.error || result.message));
-  }
-  } catch (err) {
-    console.error(err);
-    alert('Không thể kết nối đến server');
-  }
+  document.getElementById('btnDeleteEmployee').onclick = async () => {
+    const id = document.getElementById('editId').value;
+    const name = document.getElementById('editName').value;
+    if (!confirm(`Xác nhận xóa nhân viên [${name}]?\nLưu ý: Peer vĩnh viễn trên ImmortalWrt sẽ bị thu hồi!`)) return;
+    try {
+      const response = await fetch('/api/delete-employee', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: id })
+      });
+      const result = await response.json();
+      if (response.ok) {
+        alert(result.message);
+        closeEditModal();
+        showManage();
+      } else alert('Lỗi: ' + (result.error || result.message));
+    } catch { alert('Server đang bận hoặc lỗi kết nối!'); }
   };
 </script>
 </body>
