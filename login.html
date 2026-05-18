@@ -15,7 +15,6 @@
             --input-bg: #f7f7fc;
             --input-focus: #e5e8ff;
             --shadow: 0 8px 32px 0 rgba(44, 44, 84, 0.12);
-            --popup-bg: #f9fafe;
         }
         body {
             font-family: 'Roboto', Arial, sans-serif;
@@ -125,26 +124,6 @@
             background: linear-gradient(90deg, var(--primary-dark) 60%, #14b989 100%);
             box-shadow: 0 6px 14px 0 rgba(108, 71, 255, 0.13);
         }
-        .about-btn {
-            width: 100%;
-            padding: 9px;
-            margin-top: 11px;
-            border: none;
-            border-radius: 7px;
-            background: #f1f4ff;
-            color: var(--primary-dark);
-            font-size: 0.98rem;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s, color 0.2s;
-            box-shadow: 0 1.5px 5px 0 rgba(108, 71, 255, 0.04);
-            display: block;
-        }
-        .about-btn:hover {
-            background: #e7e6ff;
-            color: #2d1e72;
-        }
         .error-message {
             color: #e33a4c;
             border-radius: 6px;
@@ -153,90 +132,61 @@
             text-align: center;
             font-size: 0.97rem;
             min-height: 24px;
-            background: none;
-            transition: background 0.18s;
         }
         .error-message:not(:empty) {
             background: #fff5f6;
         }
-        .about-popup {
+        .modal-overlay {
             display: none;
-            position: absolute;
-            left: 0;
-            right: 0;
-            margin: 0 auto;
-            top: 98%;
-            z-index: 10;
-            background: var(--popup-bg);
-            border: 1.5px solid var(--primary);
-            border-radius: 10px;
-            box-shadow: 0 6px 20px 0 rgba(108,71,255,0.13);
-            padding: 18px 20px 12px 20px;
-            max-width: 350px;
-            min-width: 220px;
-            font-size: 0.99rem;
-            color: #2d1e72;
-            animation: popupIn 0.18s ease;
-        }
-        @keyframes popupIn {
-            from { opacity: 0; transform: translateY(12px);}
-            to   { opacity: 1; transform: translateY(0);}
-        }
-        .about-popup .popup-header {
-            display: flex;
-            justify-content: space-between;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 1000;
+            justify-content: center;
             align-items: center;
-            font-family: 'Montserrat', sans-serif;
-            font-weight: 700;
-            font-size: 1.07rem;
-            margin-bottom: 7px;
         }
-        .about-popup .popup-close {
-            background: none;
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 340px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .modal-content h3 { margin-top: 0; font-family: 'Montserrat'; }
+        .modal-content input {
+            width: 100%;
+            font-size: 24px;
+            text-align: center;
+            letter-spacing: 5px;
+            padding: 10px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            margin: 15px 0;
+            outline: none;
+            box-sizing: border-box;
+        }
+        .modal-content button {
+            width: 100%;
+            padding: 12px;
+            background: var(--primary);
+            color: white;
             border: none;
-            color: #8b5cf6;
-            font-size: 1.18rem;
-            cursor: pointer;
+            border-radius: 7px;
             font-weight: bold;
-            padding: 0 5px;
-            margin-left: 6px;
-            transition: color 0.2s;
-        }
-        .about-popup .popup-close:hover {
-            color: #e33a4c;
-        }
-        .about-popup ul {
-            margin: 10px 0 0 14px;
-            padding: 0;
-            list-style: disc;
-        }
-        .about-popup li {
-            margin-bottom: 6px;
+            cursor: pointer;
         }
         .footer {
             margin-top: 32px;
             text-align: center;
             color: #a0a4c3;
             font-size: 0.97rem;
-            letter-spacing: 0.2px;
-            user-select: none;
-        }
-        @media (max-width: 500px) {
-            .login-card {
-                padding: 22px 8vw 18px 8vw;
-            }
-            .company-name {
-                font-size: 1.09rem;
-            }
-            .about-popup {
-                left: 2vw;
-                right: 2vw;
-                max-width: 95vw;
-            }
         }
     </style>
 </head>
 <body>
+
 <div class="company-logo">
     <div class="logo-svg">
         <svg viewBox="0 0 32 32" fill="none">
@@ -245,64 +195,111 @@
     </div>
     <span class="company-name">Noeru Crypto Inc</span>
 </div>
+
 <form class="login-card" id="login-form" autocomplete="off">
     <h2>Đăng nhập hệ thống</h2>
-    <div class="desc">Chào mừng đến với cổng nhân sự của Noeru Crypto Inc.<br></div>
+    <div class="desc">Chào mừng đến với cổng nhân sự của Noeru Crypto Inc.</div>
     <label for="username">Tên đăng nhập</label>
-    <input type="text" id="username" name="username" placeholder="Nhập tên đăng nhập..." required autofocus>
+    <input type="text" id="username" placeholder="Nhập tên đăng nhập..." required autofocus>
     <label for="password">Mật khẩu</label>
-    <input type="password" id="password" name="password" placeholder="Nhập mật khẩu..." required>
+    <input type="password" id="password" placeholder="Nhập mật khẩu..." required>
     <button type="submit">Đăng nhập</button>
-    <button type="button" class="about-btn" id="about-btn">Về công ty Noeru Crypto Inc</button>
     <div class="error-message" id="error-message"></div>
-    <div class="about-popup" id="about-popup">
-        <div class="popup-header">
-            <span>Thông tin vui về Crypto</span>
-            <button class="popup-close" id="popup-close" title="Đóng">&times;</button>
-        </div>
-        <ul>
-            <li>Bitcoin được tạo ra bởi một người (hoặc nhóm) bí ẩn tên là Satoshi Nakamoto.</li>
-            <li>Chìa khóa ví crypto của bạn giống như... chìa khóa két sắt, làm rơi là xác định luôn</li>
-            <li>Ngày 22/5 là "Bitcoin Pizza Day" – 10,000 BTC từng chỉ mua được 2 cái pizza!</li>
-            <li>Không ai biết ai là người đầu tiên nói "HODL", nhưng ai cũng từng FOMO ít nhất một lần!</li>
-            <li>Crypto không ngủ, thị trường hoạt động 24/7 – bạn thì nên ngủ đủ nha!</li>
-        </ul>
-    </div>
 </form>
-<div class="footer">&copy; 2025 Noeru Crypto Inc. All rights reserved.</div>
+
+<div class="modal-overlay" id="2fa-modal">
+    <div class="modal-content">
+        <h3>Xác thực 2 lớp</h3>
+        <div id="qr-container" style="display:none;">
+            <p style="font-size: 0.8rem; color: #666;">Quét mã bằng app Authenticator</p>
+            <img id="qr-image" style="width:160px; margin: 10px auto; display: block;">
+        </div>
+        <p>Nhập mã PIN 6 số:</p>
+        <input type="text" id="2fa-pin" maxlength="6" placeholder="000000">
+        <button id="verify-2fa-btn">XÁC NHẬN</button>
+        <p style="margin-top:15px; font-size:0.8rem; color:gray; cursor:pointer;" onclick="location.reload()">Quay lại</p>
+    </div>
+</div>
+
+<div class="footer">&copy; 2026 Noeru Crypto Inc. All rights reserved.</div>
+
 <script>
     const form = document.getElementById('login-form');
     const errorMsg = document.getElementById('error-message');
+    const modal = document.getElementById('2fa-modal');
+    const pinInput = document.getElementById('2fa-pin');
+
+    let tempUser = {};
+
     form.addEventListener('submit', async e => {
         e.preventDefault();
         errorMsg.textContent = '';
         const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value.trim();
+
         try {
             const res = await fetch('/api/login', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({username, password})
             });
+
             if (res.ok) {
-                const {name, role} = await res.json();
-                location.href = `dashboard.html?name=${encodeURIComponent(name)}&role=${encodeURIComponent(role)}&password=${encodeURIComponent(password)}`;
-            } else errorMsg.textContent = res.status === 401 ? 'Tên đăng nhập hoặc mật khẩu không đúng ' : 'Lỗi máy chủ. Vui lòng thử lại sau ';
+                const data = await res.json();
+                tempUser = { username, password, name: data.name, role: data.role };
+                modal.style.display = 'flex';
+                pinInput.focus();
+
+                if (data.mustVerify2FA && !data.hasSecret) {
+                    const qrRes = await fetch('/api/setup-2fa', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({username})
+                    });
+                    const qrData = await qrRes.json();
+                    document.getElementById('qr-image').src = qrData.qrCode;
+                    document.getElementById('qr-container').style.display = 'block';
+                } else {
+                    document.getElementById('qr-container').style.display = 'none';
+                }
+            } else {
+                errorMsg.textContent = 'Sai tài khoản hoặc mật khẩu';
+            }
         } catch {
-            errorMsg.textContent = 'Lỗi mạng. Vui lòng thử lại sau ';
+            errorMsg.textContent = 'Lỗi kết nối máy chủ';
         }
     });
-    const aboutBtn = document.getElementById('about-btn'),
-        aboutPopup = document.getElementById('about-popup'),
-        closeBtn = document.getElementById('popup-close');
-    aboutBtn.onclick = () => {
-        aboutPopup.style.display = 'block';
-        setTimeout(() => aboutPopup.focus?.(), 50);
+
+    const verifyPin = async () => {
+        const pin = pinInput.value;
+        try {
+            const res = await fetch('/api/verify-2fa', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username: tempUser.username, token: pin })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                sessionStorage.setItem('user_name', data.name);
+                sessionStorage.setItem('user_username', tempUser.username);
+                sessionStorage.setItem('user_role', data.role);
+                sessionStorage.setItem('user_password', tempUser.password);
+                location.href = 'dashboard.html';
+            } else {
+                alert('Mã PIN không chính xác');
+                pinInput.value = '';
+                pinInput.focus();
+            }
+        } catch {
+            alert('Lỗi xác thực');
+        }
     };
-    closeBtn.onclick = () => aboutPopup.style.display = 'none';
-    document.addEventListener('mousedown', e => {
-        if (aboutPopup.style.display === 'block' && !aboutPopup.contains(e.target) && e.target !== aboutBtn)
-            aboutPopup.style.display = 'none';
+
+    document.getElementById('verify-2fa-btn').onclick = verifyPin;
+
+    pinInput.addEventListener('keypress', e => {
+        if (e.key === 'Enter') verifyPin();
     });
 </script>
 </body>

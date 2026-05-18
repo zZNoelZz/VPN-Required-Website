@@ -383,25 +383,27 @@
 <script>
   const urlParams = new URLSearchParams(window.location.search);
 
-  const usernameParam = urlParams.get('username') || '';
-  const passwordParam = urlParams.get('password') || '';
-  const roleParam = urlParams.get('role') || '';
-
-  if (window.location.search) {
-    const cleanUrl = window.location.origin + window.location.pathname;
-    window.history.replaceState({}, document.title, cleanUrl);
+  if (urlParams.get('username')) {
+    sessionStorage.setItem('user_username', urlParams.get('username'));
+    sessionStorage.setItem('user_password', urlParams.get('password'));
+    sessionStorage.setItem('user_role', urlParams.get('role'));
   }
 
-  let myRole = roleParam;
+  const savedUser = sessionStorage.getItem('user_username');
+  const savedPass = sessionStorage.getItem('user_password');
+  const savedRole = sessionStorage.getItem('user_role');
+
+  if (!savedUser || !savedPass) {
+    window.location.href = 'login.html';
+  }
+
+  if (window.location.search) {
+    window.history.replaceState({}, document.title, window.location.origin + window.location.pathname);
+  }
 
   window.addEventListener('DOMContentLoaded', async () => {
-    try {
-      const manageBtn = document.getElementById('manage-btn');
-      if (myRole !== 'boss' && myRole !== 'leader') {
-        if (manageBtn) manageBtn.style.display = 'none';
-      }
-    } catch {
-      const manageBtn = document.getElementById('manage-btn');
+    const manageBtn = document.getElementById('manage-btn');
+    if (savedRole !== 'boss' && savedRole !== 'leader') {
       if (manageBtn) manageBtn.style.display = 'none';
     }
   });
@@ -434,8 +436,8 @@
     mainContent.innerHTML = `
     <h2>Thông tin cá nhân</h2>
     <div class="user-info">
-      <strong>Username:</strong> <span>${usernameParam}</span><br>
-      <strong>Password:</strong> <span>${passwordParam}</span>
+      <strong>Username:</strong> <span>${savedUser}</span><br>
+      <strong>Password:</strong> <span>${savedPass}</span>
     </div>`;
   };
 
@@ -484,7 +486,7 @@
     }
   };
 
-  const logout = () => { location.href = 'login.html'; };
+  const logout = () => { sessionStorage.clear(); location.href = 'login.html'; };
 
   const showManage = async () => {
     mainContent.innerHTML = `
@@ -498,7 +500,7 @@
     </p>
     <div id="user-table-wrap"></div>`;
 
-    if (myRole === 'boss') {
+    if (savedRole === 'boss') {
       document.getElementById('editEmployeeBtn').style.display = 'inline-block';
     }
 

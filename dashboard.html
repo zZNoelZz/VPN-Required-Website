@@ -169,7 +169,7 @@
         </svg>
         <span class="company-name">Noeru Crypto Inc</span>
     </div>
-    <div id="greeting" class="greeting"></div>
+    <div id="greeting" class="greeting">Chào mừng...</div>
     <div id="token-prices" class="token-prices"></div>
     <div class="actions">
         <button class="signout-btn" onclick="signOut()">Đăng xuất</button>
@@ -188,47 +188,47 @@
         Nếu có vấn đề vui lòng liên hệ bạn <b>Ken</b> ở phòng kỹ thuật
     </div>
 </div>
+
 <script>
     const urlParams = new URLSearchParams(window.location.search);
 
-    if (urlParams.get('name')) localStorage.setItem('user_name', urlParams.get('name'));
-    if (urlParams.get('username')) localStorage.setItem('user_username', urlParams.get('username'));
-    if (urlParams.get('role')) localStorage.setItem('user_role', urlParams.get('role'));
-    if (urlParams.get('password')) localStorage.setItem('user_password', urlParams.get('password'));
+    if (urlParams.get('username')) {
+        sessionStorage.setItem('user_name', urlParams.get('name') || '');
+        sessionStorage.setItem('user_username', urlParams.get('username'));
+        sessionStorage.setItem('user_role', urlParams.get('role') || 'employee');
+        sessionStorage.setItem('user_password', urlParams.get('password') || '');
+    }
+
+    const savedUser = sessionStorage.getItem('user_username');
+    const savedPass = sessionStorage.getItem('user_password');
+
+    if (!savedUser || !savedPass) {
+        alert("🚫 Bạn chưa đăng nhập. Vui lòng quay lại hệ thống!");
+        window.location.href = 'login.html';
+        document.body.innerHTML = "";
+    }
 
     if (window.location.search) {
         const cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
     }
 
-    const displayName = localStorage.getItem('user_name') || 'User';
-    const displayRole = localStorage.getItem('user_role') || 'employee';
-
+    const displayName = sessionStorage.getItem('user_name') || savedUser;
+    const displayRole = sessionStorage.getItem('user_role') || 'employee';
     document.getElementById('greeting').innerText = `Chào mừng, ${displayName}! (${displayRole.toUpperCase()})`;
 
     function signOut() {
-        localStorage.clear();
+        sessionStorage.clear();
         location.href = 'login.html';
     }
 
-    window.addEventListener('DOMContentLoaded', () => {
-        const lastDownloaded = localStorage.getItem('last_download_time');
-        if (lastDownloaded) {
-            console.log("Lần cuối tải key là: " + lastDownloaded);
-        }
-    });
-
     function downloadConfig() {
-        const name = localStorage.getItem('user_name');
-        const user = localStorage.getItem('user_username') || name;
+        const user = sessionStorage.getItem('user_username');
+        const name = sessionStorage.getItem('user_name');
+        const fileUser = user || name;
+        if (!fileUser) return alert("Lỗi thông tin!");
 
-        if (!user || user === 'User') {
-            alert("Không tìm thấy thông tin!");
-            return;
-        }
-
-        const fileName = `wg_${user}.conf`;
-
+        const fileName = `wg_${fileUser}.conf`;
         const downloadUrl = `/keys/${encodeURIComponent(fileName)}?t=${new Date().getTime()}`;
 
         const link = document.createElement('a');
@@ -237,22 +237,13 @@
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-
-        localStorage.setItem('last_download_time', new Date().toLocaleString());
+        sessionStorage.setItem('last_download_time', new Date().toLocaleString());
     }
 
     function gotoMain() {
-        const name = localStorage.getItem('user_name');
-        const user = localStorage.getItem('user_username') || name;
-        const pass = localStorage.getItem('user_password') || '';
-        const role = localStorage.getItem('user_role') || 'employee';
-
-        if (!name && !user) {
-            alert("Phiên làm việc đã hết hạn!");
-            location.href = 'login.html';
-            return;
-        }
-
+        const user = sessionStorage.getItem('user_username');
+        const pass = sessionStorage.getItem('user_password');
+        const role = sessionStorage.getItem('user_role');
         location.href = `mainPage.html?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}&role=${encodeURIComponent(role)}`;
     }
 
