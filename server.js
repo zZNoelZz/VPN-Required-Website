@@ -216,4 +216,26 @@ app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard
 app.get('/mainPage', (req, res) => res.sendFile(path.join(__dirname, 'mainPage.html')));
 app.get('/', (req, res) => res.redirect('/login'));
 
+app.post('/api/report-attack', async (req, res) => {
+    const { attacker_ip, attack_type, packet_rate } = req.body;
+    
+    console.log(`\n[ALARM - PHÁT HIỆN TẤN CÔNG BẰNG AI RANDOM FOREST]`);
+    console.log(`> Địa chỉ IP nguồn độc hại: ${attacker_ip}`);
+    console.log(`> Phương thức: ${attack_type}`);
+    console.log(`> Lưu lượng bất thường: ${packet_rate} gói/giây`);
+
+    try {
+        const cmd = `iptables -I INPUT -s ${attacker_ip} -j DROP`;
+        
+        console.log(`[*] Đang thực thi lệnh cấu hình an ninh ngầm qua SSH tới Router...`);
+        const result = await executeRouterCommand(cmd);
+        
+        console.log(`[✔ IPS SUCCESS] Đã cách ly hoàn toàn IP: ${attacker_ip} trên Firewall Router.`);
+        res.json({ status: "success", message: "Hệ thống IPS đã kích hoạt phản ứng chặn thành công" });
+    } catch (error) {
+        console.error(`[x Lỗi IPS]: Không thể đẩy cấu hình chặn lên Router phần cứng. Chi tiết:`, error);
+        res.status(500).json({ error: "Lỗi kết nối tương tác thiết bị mạng" });
+    }
+});
+
 app.listen(port, () => console.log(`✅ Server running on port ${port}`));
