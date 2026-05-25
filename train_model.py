@@ -1,43 +1,44 @@
 import pandas as pd
+import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import joblib
-import numpy as np
 
-print("[*] Đang khởi tạo tập dữ liệu huấn luyện IDS nâng cao...")
+# Nạp và kiểm tra tệp dữ liệu thực tế 
+print("[*] Đang nạp Dataset thực tế CICIDS2017 từ Kaggle...")
+try:
+    df = pd.read_csv('cicids2017_data.csv')
+except FileNotFoundError:
+    print("[!] LỖI: Không tìm thấy tệp 'cicids2017_data.csv' trong thư mục dự án!")
+    exit()
 
-# Nhãn 0 (Bình thường): Kích thước gói đa dạng, khoảng cách lớn, tần suất thấp
-normal_data = pd.DataFrame({
-    'packet_size': np.random.randint(54, 1500, 1000),
-    'interval': np.random.uniform(0.1, 1.0, 1000),
-    'packet_rate': np.random.randint(1, 15, 1000),
-    'label': 0
-})
+# Sàng lọc ra những đặc trưng cốt lõi mà Card mạng WireGuard có thể bắt Real-time
+df.columns = df.columns.str.strip()
+features = ['Fwd Packet Length Mean', 'Flow IAT Mean', 'Flow Packets/s', 'SYN Flag Count', 'ACK Flag Count']
+df = df[features + ['Label']]
 
-# Nhãn 1 (Tấn công Flood): Kích thước gói nhỏ/đồng đều, khoảng cách cực nhỏ (~0), tần suất cực cao
-attack_data = pd.DataFrame({
-    'packet_size': np.random.choice([64, 74, 128], 1000),
-    'interval': np.random.uniform(0.0001, 0.005, 1000),
-    'packet_rate': np.random.randint(500, 1500, 1000),
-    'label': 1
-})
+# Làm sạch dữ liệu và loại bỏ các hàng chứa giá trị lỗi NaN, Infinity
+print("[*] Đang làm sạch dữ liệu...")
+df.replace([np.inf, -np.inf], np.nan, inplace=True)
+df.dropna(inplace=True)
 
-# Gộp dữ liệu và XÁO TRỘN NGẪU NHIÊN để tránh AI học vẹt theo thứ tự hàng
-df = pd.concat([normal_data, attack_data], ignore_index=True)
-df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+# Chuẩn hóa các label (BENIGN thành mạng an toàn 0, các nhãn khác thành tấn công 1)
+df['Label'] = df['Label'].apply(lambda x: 0 if x == 'BENIGN' else 1)
+X = df[features]
+y = df['Label']
+print(f"[*] Thống kê lưu lượng luồng: Bình thường (0): {sum(y==0)} | Tấn công (1): {sum(y==1)}")
 
-X = df[['packet_size', 'interval', 'packet_rate']]
-y = df['label']
-
+# Chia tập dữ liệu ngẫu nhiên thành 80% để học và 20% để kiểm thử mô hình
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-clf = RandomForestClassifier(n_estimators=100, random_state=42)
+# Huấn luyện mô hình Random Forest bằng cách tận dụng 100% tài nguyên đa nhân của CPU
+print("[*] Đang tiến hành máy học phân loại Random Forest...")
+clf = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
 clf.fit(X_train, y_train)
 
+# Đánh giá độ chính xác toán học và đóng gói xuất file bộ não AI thực tế
 y_pred = clf.predict(X_test)
 acc = accuracy_score(y_test, y_pred)
-
-# Lưu bộ não AI
 joblib.dump(clf, 'random_forest_model.pkl')
-print(f"[✔] Đã tạo xong file random_forest_model.pkl với Accuracy đạt chuẩn: {acc * 100:.2f}%")
+print(f"[✔] HUẤN LUYỆN THÀNH CÔNG! Accuracy đạt chuẩn: {acc * 100:.4f}%")

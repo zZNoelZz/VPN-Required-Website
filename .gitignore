@@ -14,3 +14,6 @@ db/
 # OS files
 .DS_Store
 Thumbs.db
+
+# AI Datasets
+*.csv
