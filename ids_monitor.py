@@ -10,15 +10,21 @@ import numpy as np
 from scapy.all import sniff, IP, TCP, get_if_list
 
 # Tự động dò tìm và khớp nối Interface của card mạng ảo WireGuard trên hệ thống
-INTERFACE = "wg0"
+INTERFACE = None
 try:
     interfaces = get_if_list()
+    print(f"[*] Danh sách card mạng tìm thấy: {interfaces}")
+    
     for iface in interfaces:
-        if "wireguard" in iface.lower() or "tunnel" in iface.lower():
+        iface_lower = str(iface).lower()
+        if "wireguard" in iface_lower or "tunnel" in iface_lower or "wg" in iface_lower or "unnamed" in iface_lower:
             INTERFACE = iface
             break
-except Exception:
-    pass
+            
+    if INTERFACE is None and len(interfaces) > 0:
+        INTERFACE = interfaces[0]
+except Exception as e:
+    INTERFACE = "wg0"
 
 # Tải mô hình AI đã huấn luyện
 NODEJS_API_URL = "http://localhost:3000/api/report-attack" 
