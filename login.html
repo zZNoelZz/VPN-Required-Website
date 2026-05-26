@@ -230,6 +230,7 @@
     const pinInput = document.getElementById('2fa-pin');
 
     let tempUser = {};
+    let tempSecret = '';
 
     form.addEventListener('submit', async e => {
         e.preventDefault();
@@ -259,8 +260,10 @@
                     const qrData = await qrRes.json();
                     document.getElementById('qr-image').src = qrData.qrCode;
                     document.getElementById('qr-container').style.display = 'block';
+                    tempSecret = qrData.secret;
                 } else {
                     document.getElementById('qr-container').style.display = 'none';
+                    tempSecret = '';
                 }
             } else {
                 errorMsg.textContent = 'Sai tài khoản hoặc mật khẩu';
@@ -276,7 +279,11 @@
             const res = await fetch('/api/verify-2fa', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ username: tempUser.username, token: pin })
+                body: JSON.stringify({
+                    username: tempUser.username,
+                    token: pin,
+                    secretFromSetup: tempSecret
+                })
             });
 
             if (res.ok) {

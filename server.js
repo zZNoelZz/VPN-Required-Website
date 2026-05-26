@@ -24,9 +24,7 @@ const connection = mysql.createConnection({
     database: 'user_db'
 });
 
-app.use(express.static(__dirname));
 app.use(express.json());
-app.use('/keys', express.static(path.join(__dirname, 'keys')));
 
 if (!fs.existsSync('./keys')) {
     fs.mkdirSync('./keys');
@@ -40,20 +38,35 @@ app.use((req, res, next) => {
         ip = req.headers['x-forwarded-for'].split(',')[0].trim();
     }
     req.clientIp = ip;
-    if (req.path === '/mainPage' || req.path === '/mainPage.html') {
+
+    if (req.path.startsWith('/mainPage')) {
         if (!ip.startsWith('10.10.')) {
             return res.status(403).send(`
-                <html><body style="font-family:sans-serif;text-align:center;padding:60px">
-                <h2>🚫 Truy cập bị từ chối</h2>
-                <div>Bạn cần kết nối VPN WireGuard để vào vùng quản trị.<br>
-                IP hiện tại của bạn: <b>${ip}</b><br><br>
-                <a href="/dashboard">Quay lại Dashboard để tải Key</a></div>
-                </body></html>
+                <html>
+                <head>
+                    <title>🚫 Từ chối truy cập</title>
+                    <script>
+                        if (window.location.search) {
+                            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+                            window.history.replaceState({path: cleanUrl}, '', cleanUrl);
+                        }
+                    </script>
+                </head>
+                <body style="font-family:sans-serif;text-align:center;padding:60px">
+                    <h2>🚫 Truy cập bị từ chối</h2>
+                    <div>Bạn cần kết nối VPN WireGuard để vào vùng quản trị.<br>
+                    IP hiện tại của bạn: <b>${ip}</b><br><br>
+                    <a href="/dashboard">Quay lại Dashboard để tải Key</a></div>
+                </body>
+                </html>
             `);
         }
     }
     next();
 });
+
+app.use(express.static(__dirname));
+app.use('/keys', express.static(path.join(__dirname, 'keys')));
 
 function executeRouterCommand(cmd) {
     return new Promise((resolve, reject) => {
@@ -109,25 +122,34 @@ app.post('/api/setup-2fa', async (req, res) => {
     const otpauth = authenticator.keyuri(username, 'NoeruCryptoInc', secret);
     try {
         const imageUrl = await QRCode.toDataURL(otpauth);
-        connection.query('UPDATE users SET google_auth_secret = ? WHERE username = ?', [secret, username], (err) => {
-            if (err) return res.status(500).json({ error: 'Lỗi Database' });
-            res.json({ qrCode: imageUrl });
-        });
+        res.json({ qrCode: imageUrl, secret: secret });
     } catch (err) {
         res.status(500).json({ error: 'Lỗi tạo mã QR' });
     }
 });
 
 app.post('/api/verify-2fa', (req, res) => {
-    const { username, token } = req.body;
+    const { username, token, secretFromSetup } = req.body;
+
     connection.query('SELECT google_auth_secret, name, role FROM users WHERE username = ?', [username], (err, results) => {
         if (err || !results.length) return res.status(500).json({ error: 'Lỗi xác thực' });
-        const secret = results[0].google_auth_secret;
+
+        const secret = results[0].google_auth_secret || secretFromSetup;
+
+        if (!secret) return res.status(400).json({ error: 'Thiếu thông số cấu hình 2FA' });
+
         const isValid = authenticator.check(token, secret);
         if (isValid) {
-            res.json({ success: true, name: results[0].name, role: results[0].role });
+            if (!results[0].google_auth_secret) {
+                connection.query('UPDATE users SET google_auth_secret = ? WHERE username = ?', [secret, username], (updateErr) => {
+                    if (updateErr) return res.status(500).json({ error: 'Lỗi kích hoạt 2FA vào DB' });
+                    res.json({ success: true, name: results[0].name, role: results[0].role });
+                });
+            } else {
+                res.json({ success: true, name: results[0].name, role: results[0].role });
+            }
         } else {
-            res.status(401).json({ success: false });
+            res.status(401).json({ success: false, message: "Mã xác thực không chính xác" });
         }
     });
 });
@@ -159,7 +181,7 @@ app.post('/api/add-employee', async (req, res) => {
             async (err, result) => {
                 if (err) return res.status(500).json({ error: 'Database error' });
                 const clientIp = `10.10.30.${result.insertId + 10}`;
-                const allowedIps = `10.10.0.0/16, 192.168.2.0/24`;
+                const allowedIps = `10.10.0.0/16`;
                 try {
                     await executeRouterCommand(`uci add network wireguard_wg0 && uci set network.@wireguard_wg0[-1].description='${name}' && uci set network.@wireguard_wg0[-1].public_key='${publicKey}' && uci add_list network.@wireguard_wg0[-1].allowed_ips='${clientIp}/32' && uci commit network && /etc/init.d/network reload && wg showconf wg0 > /etc/wireguard/wg0.conf`);
                     const config = `[Interface]\nPrivateKey = ${privateKey}\nAddress = ${clientIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = ${allowedIps}\nPersistentKeepalive = 25`;
@@ -183,7 +205,7 @@ app.post('/api/edit-employee', async (req, res) => {
             if (idx !== "") {
                 await executeRouterCommand(`uci set network.@wireguard_wg0[${idx}].description='${name}' && uci set network.@wireguard_wg0[${idx}].allowed_ips='${newIp}/32' && uci commit network && /etc/init.d/network reload && wg showconf wg0 > /etc/wireguard/wg0.conf`);
             }
-            const config = `[Interface]\nPrivateKey = ${wg_private_key}\nAddress = ${newIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = 10.10.0.0/16, 192.168.2.0/24\nPersistentKeepalive = 25`;
+            const config = `[Interface]\nPrivateKey = ${wg_private_key}\nAddress = ${newIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = 10.10.0.0/16\nPersistentKeepalive = 25`;
             fs.writeFileSync(path.join(__dirname, 'keys', `wg_${username}.conf`), config);
             let sql = 'UPDATE users SET name=?, username=?, role=?, salary=?, extra=?';
             let params = [name, username, role, salary, extra];
