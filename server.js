@@ -31,12 +31,20 @@ if (!fs.existsSync('./keys')) {
 }
 
 app.use((req, res, next) => {
-    let ip = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-    if (ip.includes(',')) ip = ip.split(',')[0].trim();
+    let ip = req.socket.remoteAddress || '';
+
     ip = ip.replace('::ffff:', '').trim();
-    if ((ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') && req.headers['x-forwarded-for']) {
-        ip = req.headers['x-forwarded-for'].split(',')[0].trim();
+    if (ip === '::1') ip = '127.0.0.1';
+
+    if (ip === '127.0.0.1' || ip === 'localhost') {
+        const xForwardedFor = req.headers['x-forwarded-for'];
+        if (xForwardedFor) {
+            ip = xForwardedFor.split(',')[0].trim().replace('::ffff:', '');
+        } else {
+            ip = req.headers['cf-connecting-ip'] || ip;
+        }
     }
+
     req.clientIp = ip;
 
     if (req.path.startsWith('/mainPage')) {
@@ -55,8 +63,9 @@ app.use((req, res, next) => {
                 <body style="font-family:sans-serif;text-align:center;padding:60px">
                     <h2>🚫 Truy cập bị từ chối</h2>
                     <div>Bạn cần kết nối VPN WireGuard để vào vùng quản trị.<br>
-                    IP hiện tại của bạn: <b>${ip}</b><br><br>
-                    <a href="/dashboard">Quay lại Dashboard để tải Key</a></div>
+                    IP hiện tại của bạn của bạn được hệ thống nhận diện là: <b style="color:red">${ip}</b><br><br>
+                    <span style="font-size:14px;color:#555">Nếu IP trên không phải đầu số 10.10.x.x, nghĩa là gói tin chưa đi qua hầm VPN!</span><br><br>
+                    <a href="/dashboard" style="display:inline-block;padding:10px 20px;background:#007bff;color:#fff;text-decoration:none;border-radius:4px">Quay lại Dashboard</a></div>
                 </body>
                 </html>
             `);
@@ -184,7 +193,9 @@ app.post('/api/add-employee', async (req, res) => {
                 const allowedIps = `10.10.0.0/16`;
                 try {
                     await executeRouterCommand(`uci add network wireguard_wg0 && uci set network.@wireguard_wg0[-1].description='${name}' && uci set network.@wireguard_wg0[-1].public_key='${publicKey}' && uci add_list network.@wireguard_wg0[-1].allowed_ips='${clientIp}/32' && uci commit network && /etc/init.d/network reload && wg showconf wg0 > /etc/wireguard/wg0.conf`);
+
                     const config = `[Interface]\nPrivateKey = ${privateKey}\nAddress = ${clientIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = ${allowedIps}\nPersistentKeepalive = 25`;
+
                     fs.writeFileSync(path.join(__dirname, 'keys', `wg_${username}.conf`), config);
                     res.json({ message: 'Thành công', downloadLink: `/keys/wg_${encodeURIComponent(username)}.conf` });
                 } catch { res.status(500).json({ error: 'Router error' }); }
@@ -205,7 +216,9 @@ app.post('/api/edit-employee', async (req, res) => {
             if (idx !== "") {
                 await executeRouterCommand(`uci set network.@wireguard_wg0[${idx}].description='${name}' && uci set network.@wireguard_wg0[${idx}].allowed_ips='${newIp}/32' && uci commit network && /etc/init.d/network reload && wg showconf wg0 > /etc/wireguard/wg0.conf`);
             }
+
             const config = `[Interface]\nPrivateKey = ${wg_private_key}\nAddress = ${newIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = 10.10.0.0/16\nPersistentKeepalive = 25`;
+
             fs.writeFileSync(path.join(__dirname, 'keys', `wg_${username}.conf`), config);
             let sql = 'UPDATE users SET name=?, username=?, role=?, salary=?, extra=?';
             let params = [name, username, role, salary, extra];
@@ -240,24 +253,31 @@ app.get('/', (req, res) => res.redirect('/login'));
 
 app.post('/api/report-attack', async (req, res) => {
     const { attacker_ip, attack_type, packet_rate } = req.body;
-    
+
     console.log(`\n[ALARM - PHÁT HIỆN TẤN CÔNG BẰNG AI RANDOM FOREST]`);
-    console.log(`> Địa chỉ IP nguồn độc hại: ${attacker_ip}`);
-    console.log(`> Phương thức: ${attack_type}`);
-    console.log(`> Lưu lượng bất thường: ${packet_rate} gói/giây`);
+    console.log(`> Địa chỉ IP nguồn: ${attacker_ip}`);
 
     try {
-        const cmd = `iptables -I INPUT -s ${attacker_ip} -j DROP`;
-        
-        console.log(`[*] Đang thực thi lệnh cấu hình an ninh ngầm qua SSH tới Router...`);
-        const result = await executeRouterCommand(cmd);
-        
-        console.log(`[✔ IPS SUCCESS] Đã cách ly hoàn toàn IP: ${attacker_ip} trên Firewall Router.`);
-        res.json({ status: "success", message: "Hệ thống IPS đã kích hoạt phản ứng chặn thành công" });
+        if (attacker_ip && attacker_ip.startsWith('10.10.')) {
+            const cmd = `iptables -I INPUT -s ${attacker_ip} -j DROP`;
+            await executeRouterCommand(cmd);
+            console.log(`[✔ IPS] Đã cách ly IP nội bộ: ${attacker_ip} trên Firewall Router.`);
+            return res.json({ status: "success", message: "Router isolated successfully" });
+        } else if (attacker_ip) {
+            const { exec } = require('child_process');
+            const blockCmd = `netsh advfirewall firewall add rule name="AI_Block_${attacker_ip}" dir=in action=block remoteip=${attacker_ip}`;
+
+            exec(blockCmd, (error) => {
+                if (error) console.error(`[x Lỗi Windows Firewall]: ${error.message}`);
+                else console.log(`[✔ IPS] Đã tống cổ IP vãng lai: ${attacker_ip} bằng Windows Firewall.`);
+            });
+            return res.json({ status: "success", message: "Windows Host isolated" });
+        }
+        res.status(400).json({ error: "Invalid Attacker IP" });
     } catch (error) {
-        console.error(`[x Lỗi IPS]: Không thể đẩy cấu hình chặn lên Router phần cứng. Chi tiết:`, error);
-        res.status(500).json({ error: "Lỗi kết nối tương tác thiết bị mạng" });
+        console.error(`[x Lỗi thực thi IPS]:`, error);
+        res.status(500).json({ error: "Lỗi thực thi hệ thống phòng vệ" });
     }
 });
 
-app.listen(port, () => console.log(`✅ Server running on port ${port}`));
+app.listen(port, '0.0.0.0', () => console.log(`✅ Server running on IPv4 port ${port}`));
