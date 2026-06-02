@@ -17,3 +17,4 @@ Thumbs.db
 
 # AI Datasets
 *.csv
+*.parquet

@@ -85,7 +85,7 @@ def process_packet(packet):
             # Gom dữ liệu vào DataFrame theo đúng 5 TÊN CỘT đã train
             features = pd.DataFrame(
                 [[fwd_pkt_len_mean, flow_iat_mean, flow_packets_s, syn_flag_binary, ack_flag_binary]], 
-                columns=['fwd_pkt_len_mean', 'flow_iat_mean', 'flow_pkts/s', 'syn_flag_cnt', 'ack_flag_cnt']
+                columns=['fwd_packet_length_mean', 'flow_iat_mean', 'flow_packets/s', 'syn_flag_count', 'ack_flag_count']
             )
             
             # 1. Random Forest (1 = Tấn công, 0 = Bình thường)
