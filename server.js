@@ -251,31 +251,62 @@ app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard
 app.get('/mainPage', (req, res) => res.sendFile(path.join(__dirname, 'mainPage.html')));
 app.get('/', (req, res) => res.redirect('/login'));
 
+const { exec } = require('child_process');
+
+const blockedIPs = new Set();
+const isValidIP = (ip) => {
+    const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    return ipv4Regex.test(ip);
+};
+
 app.post('/api/report-attack', async (req, res) => {
     const { attacker_ip, attack_type, packet_rate } = req.body;
 
-    console.log(`\n[ALARM - PHÁT HIỆN TẤN CÔNG BẰNG AI RANDOM FOREST]`);
-    console.log(`> Địa chỉ IP nguồn: ${attacker_ip}`);
+    // --- KIỂM TRA ĐẦU VÀO ---
+    if (!attacker_ip || !isValidIP(attacker_ip)) {
+        console.log(`[!] Cảnh báo: Nhận được IP không hợp lệ từ AI: ${attacker_ip}`);
+        return res.status(400).json({ error: "Invalid Attacker IP format" });
+    }
 
+    // --- KIỂM TRA CHỐNG SPAM ---
+    if (blockedIPs.has(attacker_ip)) {
+        return res.json({ status: "ignored", message: "IP is already blocked." });
+    }
+
+    blockedIPs.add(attacker_ip);
+
+    // --- IN LOG GIAO DIỆN ---
+    console.log(`\n[ALARM - HỆ THỐNG HYBRID IDS PHÁT HIỆN TẤN CÔNG]`);
+    console.log(`> Kẻ tấn công : ${attacker_ip}`);
+    console.log(`> Phân loại   : ${attack_type || 'Unknown Type'}`);
+    console.log(`> Tốc độ      : ${packet_rate || 0} gói/s`);
+
+    // --- THỰC THI LỆNH CÁCH LY CHỐNG XÂM NHẬP ---
     try {
-        if (attacker_ip && attacker_ip.startsWith('10.10.')) {
+        if (attacker_ip.startsWith('10.10.')) {
+            // Xử lý chặn trên Firewall Router (mạng nội bộ)
             const cmd = `iptables -I INPUT -s ${attacker_ip} -j DROP`;
             await executeRouterCommand(cmd);
             console.log(`[✔ IPS] Đã cách ly IP nội bộ: ${attacker_ip} trên Firewall Router.`);
             return res.json({ status: "success", message: "Router isolated successfully" });
-        } else if (attacker_ip) {
-            const { exec } = require('child_process');
+            
+        } else {
+            // Xử lý chặn trên Windows Firewall (vãng lai)
             const blockCmd = `netsh advfirewall firewall add rule name="AI_Block_${attacker_ip}" dir=in action=block remoteip=${attacker_ip}`;
 
             exec(blockCmd, (error) => {
-                if (error) console.error(`[x Lỗi Windows Firewall]: ${error.message}`);
-                else console.log(`[✔ IPS] Đã tống cổ IP vãng lai: ${attacker_ip} bằng Windows Firewall.`);
+                if (error) {
+                    console.error(`[x Lỗi Windows Firewall]: ${error.message}`);
+                    blockedIPs.delete(attacker_ip); 
+                } else {
+                    console.log(`[✔ IPS] Đã tống cổ IP vãng lai: ${attacker_ip} bằng Windows Firewall.`);
+                }
             });
             return res.json({ status: "success", message: "Windows Host isolated" });
         }
-        res.status(400).json({ error: "Invalid Attacker IP" });
     } catch (error) {
-        console.error(`[x Lỗi thực thi IPS]:`, error);
+        console.error(`[x Lỗi thực thi hệ thống phòng vệ]:`, error);
+        blockedIPs.delete(attacker_ip); 
         res.status(500).json({ error: "Lỗi thực thi hệ thống phòng vệ" });
     }
 });
