@@ -49,6 +49,8 @@ app.use((req, res, next) => {
 
     if (req.path.startsWith('/mainPage')) {
         if (!ip.startsWith('10.10.')) {
+            res.setHeader('Connection', 'close');
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
             return res.status(403).send(`
                 <html>
                 <head>
@@ -140,7 +142,7 @@ app.post('/api/setup-2fa', async (req, res) => {
 app.post('/api/verify-2fa', (req, res) => {
     const { username, token, secretFromSetup } = req.body;
 
-    connection.query('SELECT google_auth_secret, name, role FROM users WHERE username = ?', [username], (err, results) => {
+    connection.query('SELECT id, google_auth_secret, name, role FROM users WHERE username = ?', [username], (err, results) => {
         if (err || !results.length) return res.status(500).json({ error: 'Lỗi xác thực' });
 
         const secret = results[0].google_auth_secret || secretFromSetup;
@@ -149,6 +151,9 @@ app.post('/api/verify-2fa', (req, res) => {
 
         const isValid = authenticator.check(token, secret);
         if (isValid) {
+            const userId = results[0].id;
+            connection.query('INSERT INTO logs (user_id, action, ip_address) VALUES (?, "2FA Verification Success", ?)', [userId, req.clientIp]);
+
             if (!results[0].google_auth_secret) {
                 connection.query('UPDATE users SET google_auth_secret = ? WHERE username = ?', [secret, username], (updateErr) => {
                     if (updateErr) return res.status(500).json({ error: 'Lỗi kích hoạt 2FA vào DB' });
@@ -182,67 +187,113 @@ app.post('/api/add-employee', async (req, res) => {
     if (role !== 'boss' && role !== 'leader') return res.status(403).json({ error: 'Quyền hạn thấp' });
     const { name, username, password, salary, extra } = req.body;
     try {
-        const privateKey = await executeRouterCommand('wg genkey');
-        const publicKey = await executeRouterCommand(`echo "${privateKey}" | wg pubkey`);
+        const keysOutput = await executeRouterCommand(`priv=$(wg genkey) && pub=$(echo "$priv" | wg pubkey) && echo "$priv|$pub"`);
+        const [privateKey, publicKey] = keysOutput.trim().split('|');
+
         connection.query(
-            'INSERT INTO users (name, username, password, role, salary, extra, wg_private_key, wg_public_key) VALUES (?, ?, ?, "employee", ?, ?, ?, ?)',
-            [name, username, password, salary, extra, privateKey, publicKey],
+            'INSERT INTO users (name, username, password, role, salary, extra) VALUES (?, ?, ?, "employee", ?, ?)',
+            [name, username, password, salary, extra],
             async (err, result) => {
-                if (err) return res.status(500).json({ error: 'Database error' });
-                const clientIp = `10.10.30.${result.insertId + 10}`;
+                if (err) return res.status(500).json({ error: 'Database error khi khoi tao user' });
+
+                const userId = result.insertId;
+                const clientIp = `10.10.30.${userId + 10}`;
                 const allowedIps = `10.10.0.0/16`;
-                try {
-                    await executeRouterCommand(`uci add network wireguard_wg0 && uci set network.@wireguard_wg0[-1].description='${name}' && uci set network.@wireguard_wg0[-1].public_key='${publicKey}' && uci add_list network.@wireguard_wg0[-1].allowed_ips='${clientIp}/32' && uci commit network && /etc/init.d/network reload && wg showconf wg0 > /etc/wireguard/wg0.conf`);
 
-                    const config = `[Interface]\nPrivateKey = ${privateKey}\nAddress = ${clientIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = ${allowedIps}\nPersistentKeepalive = 25`;
+                connection.query(
+                    'INSERT INTO vpn_configs (user_id, client_ip, wg_private_key, wg_public_key) VALUES (?, ?, ?, ?)',
+                    [userId, clientIp, privateKey, publicKey],
+                    async (vpnErr) => {
+                        if (vpnErr) return res.status(500).json({ error: 'VPN storage error khi luu cấu hinh' });
 
-                    fs.writeFileSync(path.join(__dirname, 'keys', `wg_${username}.conf`), config);
-                    res.json({ message: 'Thành công', downloadLink: `/keys/wg_${encodeURIComponent(username)}.conf` });
-                } catch { res.status(500).json({ error: 'Router error' }); }
+                        try {
+                            const routerCmd = `wg set wg0 peer '${publicKey}' allowed-ips '${clientIp}/32'; uci add network wireguard_wg0 && uci set network.@wireguard_wg0[-1].description='${name}' && uci set network.@wireguard_wg0[-1].public_key='${publicKey}' && uci add_list network.@wireguard_wg0[-1].allowed_ips='${clientIp}/32' && uci commit network && wg showconf wg0 > /etc/wireguard/wg0.conf`;
+                            await executeRouterCommand(routerCmd);
+
+                            const config = `[Interface]\nPrivateKey = ${privateKey}\nAddress = ${clientIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = ${allowedIps}\nPersistentKeepalive = 25`;
+                            fs.writeFileSync(path.join(__dirname, 'keys', `wg_${username}.conf`), config);
+
+                            return res.json({ message: 'Tạo tài khoản thành công', downloadLink: `/keys/wg_${encodeURIComponent(username)}.conf` });
+                        } catch (routerErr) {
+                            return res.status(500).json({ error: 'Lỗi Router' });
+                        }
+                    }
+                );
             }
         );
-    } catch { res.status(500).json({ error: 'System error' }); }
+    } catch (sysErr) {
+        return res.status(500).json({ error: 'Lỗi hệ thống' });
+    }
 });
 
 app.post('/api/edit-employee', async (req, res) => {
     if (getRoleByIP(req.clientIp) !== 'boss') return res.status(403).json({ error: 'Chỉ Boss' });
     const { id, name, username, password, role, salary, extra } = req.body;
-    connection.query('SELECT wg_public_key, wg_private_key FROM users WHERE id = ?', [id], async (err, results) => {
-        if (err || !results.length) return res.status(404).json({ error: 'Không tìm thấy' });
+
+    connection.query('SELECT wg_public_key, wg_private_key FROM vpn_configs WHERE user_id = ?', [id], async (err, results) => {
+        if (err || !results.length) return res.status(404).json({ error: 'Không tìm thấy cấu hình VPN' });
         const { wg_public_key, wg_private_key } = results[0];
         let newIp = `10.10.${role === 'boss' ? '10' : role === 'leader' ? '20' : '30'}.${parseInt(id) + 10}`;
+
         try {
             const idx = await executeRouterCommand(`uci show network | grep "${wg_public_key}" | cut -d'[' -f2 | cut -d']' -f1`);
             if (idx !== "") {
-                await executeRouterCommand(`uci set network.@wireguard_wg0[${idx}].description='${name}' && uci set network.@wireguard_wg0[${idx}].allowed_ips='${newIp}/32' && uci commit network && /etc/init.d/network reload && wg showconf wg0 > /etc/wireguard/wg0.conf`);
+                const routerCmd = `wg set wg0 peer '${wg_public_key}' allowed-ips '${newIp}/32'; uci set network.@wireguard_wg0[${idx}].description='${name}' && uci set network.@wireguard_wg0[${idx}].allowed_ips='${newIp}/32' && uci commit network && wg showconf wg0 > /etc/wireguard/wg0.conf`;
+                await executeRouterCommand(routerCmd);
             }
 
             const config = `[Interface]\nPrivateKey = ${wg_private_key}\nAddress = ${newIp}/32\nDNS = 10.10.10.1\n\n[Peer]\nPublicKey = 3P6hQGDLUnF+NWvOiLNBuOQxWPI0DnZ2zEVi6dfM1jM=\nEndpoint = vpn.noeruvpn.space:51820\nAllowedIPs = 10.10.0.0/16\nPersistentKeepalive = 25`;
-
             fs.writeFileSync(path.join(__dirname, 'keys', `wg_${username}.conf`), config);
-            let sql = 'UPDATE users SET name=?, username=?, role=?, salary=?, extra=?';
-            let params = [name, username, role, salary, extra];
-            if (password) { sql += ', password=?'; params.push(password); }
-            sql += ' WHERE id=?'; params.push(id);
-            connection.query(sql, params, () => res.json({ message: 'Cập nhật thành công' }));
-        } catch { res.status(500).json({ error: 'Router error' }); }
+
+            connection.query(
+                'UPDATE vpn_configs SET client_ip = ? WHERE user_id = ?',
+                [newIp, id],
+                () => {
+                    let sql = 'UPDATE users SET name=?, username=?, role=?, salary=?, extra=?';
+                    let params = [name, username, role, salary, extra];
+                    if (password) { sql += ', password=?'; params.push(password); }
+                    sql += ' WHERE id=?'; params.push(id);
+                    connection.query(sql, params, () => {
+                        return res.json({ message: 'Cập nhật thành công hệ thống nhân sự và cấu hình mạng' });
+                    });
+                }
+            );
+        } catch {
+            return res.status(500).json({ error: 'Router error configuration' });
+        }
     });
 });
 
 app.post('/api/delete-employee', async (req, res) => {
     if (getRoleByIP(req.clientIp) !== 'boss') return res.status(403).json({ error: 'Chỉ Boss' });
     const { id } = req.body;
-    connection.query('SELECT wg_public_key, username FROM users WHERE id = ?', [id], async (err, results) => {
-        if (err || !results.length) return res.status(404).json({ error: 'Không tồn tại' });
-        try {
-            const idx = await executeRouterCommand(`uci show network | grep "${results[0].wg_public_key}" | cut -d'[' -f2 | cut -d']' -f1`);
-            if (idx !== "") {
-                await executeRouterCommand(`uci delete network.@wireguard_wg0[${idx}] && uci commit network && /etc/init.d/network reload && wg showconf wg0 > /etc/wireguard/wg0.conf`);
+
+    connection.query('SELECT wg_public_key FROM vpn_configs WHERE user_id = ?', [id], async (err, results) => {
+        if (err || !results.length) return res.status(404).json({ error: 'Không tồn tại cấu hình VPN' });
+
+        connection.query('SELECT username FROM users WHERE id = ?', [id], async (userErr, userRes) => {
+            if (userErr || !userRes.length) return res.status(404).json({ error: 'Không tồn tại người dùng' });
+
+            try {
+                const idx = await executeRouterCommand(`uci show network | grep "${results[0].wg_public_key}" | cut -d'[' -f2 | cut -d']' -f1`);
+                if (idx !== "") {
+                    const routerCmd = `wg set wg0 peer '${results[0].wg_public_key}' remove 2>/dev/null; uci delete network.@wireguard_wg0[${idx}] && uci commit network && wg showconf wg0 > /etc/wireguard/wg0.conf`;
+                    await executeRouterCommand(routerCmd);
+                } else {
+                    await executeRouterCommand(`wg set wg0 peer '${results[0].wg_public_key}' remove 2>/dev/null; wg showconf wg0 > /etc/wireguard/wg0.conf`).catch(() => {});
+                }
+
+                const f = path.join(__dirname, 'keys', `wg_${userRes[0].username}.conf`);
+                if (fs.existsSync(f)) fs.unlinkSync(f);
+
+                connection.query('DELETE FROM users WHERE id = ?', [id], (deleteErr) => {
+                    if (deleteErr) return res.status(500).json({ error: 'Database delete error' });
+                    return res.json({ message: 'Đã xóa hoàn toàn' });
+                });
+            } catch {
+                return res.status(500).json({ error: 'SSH error' });
             }
-            const f = path.join(__dirname, 'keys', `wg_${results[0].username}.conf`);
-            if (fs.existsSync(f)) fs.unlinkSync(f);
-            connection.query('DELETE FROM users WHERE id = ?', [id], () => res.json({ message: 'Đã xóa' }));
-        } catch { res.status(500).json({ error: 'SSH error' }); }
+        });
     });
 });
 
@@ -251,31 +302,62 @@ app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard
 app.get('/mainPage', (req, res) => res.sendFile(path.join(__dirname, 'mainPage.html')));
 app.get('/', (req, res) => res.redirect('/login'));
 
+const { exec } = require('child_process');
+
+const blockedIPs = new Set();
+const isValidIP = (ip) => {
+    const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    return ipv4Regex.test(ip);
+};
+
 app.post('/api/report-attack', async (req, res) => {
     const { attacker_ip, attack_type, packet_rate } = req.body;
 
-    console.log(`\n[ALARM - PHÁT HIỆN TẤN CÔNG BẰNG AI RANDOM FOREST]`);
-    console.log(`> Địa chỉ IP nguồn: ${attacker_ip}`);
+    // --- KIỂM TRA ĐẦU VÀO ---
+    if (!attacker_ip || !isValidIP(attacker_ip)) {
+        console.log(`[!] Cảnh báo: Nhận được IP không hợp lệ từ AI: ${attacker_ip}`);
+        return res.status(400).json({ error: "Invalid Attacker IP format" });
+    }
 
+    // --- KIỂM TRA CHỐNG SPAM ---
+    if (blockedIPs.has(attacker_ip)) {
+        return res.json({ status: "ignored", message: "IP is already blocked." });
+    }
+
+    blockedIPs.add(attacker_ip);
+
+    // --- IN LOG GIAO DIỆN ---
+    console.log(`\n[ALARM - HỆ THỐNG HYBRID IDS PHÁT HIỆN TẤN CÔNG]`);
+    console.log(`> Kẻ tấn công : ${attacker_ip}`);
+    console.log(`> Phân loại   : ${attack_type || 'Unknown Type'}`);
+    console.log(`> Tốc độ      : ${packet_rate || 0} gói/s`);
+
+    // --- THỰC THI LỆNH CÁCH LY CHỐNG XÂM NHẬP ---
     try {
-        if (attacker_ip && attacker_ip.startsWith('10.10.')) {
+        if (attacker_ip.startsWith('10.10.')) {
+            // Xử lý chặn trên Firewall Router (mạng nội bộ)
             const cmd = `iptables -I INPUT -s ${attacker_ip} -j DROP`;
             await executeRouterCommand(cmd);
             console.log(`[✔ IPS] Đã cách ly IP nội bộ: ${attacker_ip} trên Firewall Router.`);
             return res.json({ status: "success", message: "Router isolated successfully" });
-        } else if (attacker_ip) {
-            const { exec } = require('child_process');
+
+        } else {
+            // Xử lý chặn trên Windows Firewall (vãng lai)
             const blockCmd = `netsh advfirewall firewall add rule name="AI_Block_${attacker_ip}" dir=in action=block remoteip=${attacker_ip}`;
 
             exec(blockCmd, (error) => {
-                if (error) console.error(`[x Lỗi Windows Firewall]: ${error.message}`);
-                else console.log(`[✔ IPS] Đã tống cổ IP vãng lai: ${attacker_ip} bằng Windows Firewall.`);
+                if (error) {
+                    console.error(`[x Lỗi Windows Firewall]: ${error.message}`);
+                    blockedIPs.delete(attacker_ip);
+                } else {
+                    console.log(`[✔ IPS] Đã tống cổ IP vãng lai: ${attacker_ip} bằng Windows Firewall.`);
+                }
             });
             return res.json({ status: "success", message: "Windows Host isolated" });
         }
-        res.status(400).json({ error: "Invalid Attacker IP" });
     } catch (error) {
-        console.error(`[x Lỗi thực thi IPS]:`, error);
+        console.error(`[x Lỗi thực thi hệ thống phòng vệ]:`, error);
+        blockedIPs.delete(attacker_ip);
         res.status(500).json({ error: "Lỗi thực thi hệ thống phòng vệ" });
     }
 });

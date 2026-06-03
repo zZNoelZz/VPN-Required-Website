@@ -318,7 +318,7 @@
   <main class="main-content" id="main-content">
     <h2>Dashboard</h2>
     <div>Chào mừng đến với Noeru Crypto Inc!<br>
-      Hãy chọn một chức năng ở thanh bên trái để bắt đầu nhé
+      Hãy chọn một chức năng ở thanh bên trái để bắt đầu
     </div>
   </main>
 </div>
@@ -598,6 +598,11 @@
 
   document.getElementById('addEmployeeForm').onsubmit = async (e) => {
     e.preventDefault();
+    const submitBtn = e.target.querySelector('button[type="submit"]') || document.activeElement;
+    const originalText = submitBtn.innerText;
+    submitBtn.disabled = true;
+    submitBtn.innerText = "Đang Tạo...";
+
     const payload = {
       name: document.getElementById('newName').value,
       username: document.getElementById('newUsername').value,
@@ -626,11 +631,21 @@
         closeModal();
         showManage();
       } else alert('Lỗi: ' + (result.error || result.message));
-    } catch { alert('Không thể kết nối đến server'); }
+    } catch {
+      alert('Không thể kết nối đến server');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerText = originalText;
+    }
   };
 
   document.getElementById('editEmployeeForm').onsubmit = async (e) => {
     e.preventDefault();
+    const submitBtn = e.target.querySelector('button[type="submit"]') || document.activeElement;
+    const originalText = submitBtn.innerText;
+    submitBtn.disabled = true;
+    submitBtn.innerText = "Đang cập nhật...";
+
     const payload = {
       id: document.getElementById('editId').value,
       name: document.getElementById('editName').value,
@@ -652,13 +667,24 @@
         closeEditModal();
         showManage();
       } else alert('Lỗi: ' + (result.error || result.message));
-    } catch { alert('Không thể kết nối đến server'); }
+    } catch {
+      alert('Không thể kết nối đến server');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerText = originalText;
+    }
   };
 
-  document.getElementById('btnDeleteEmployee').onclick = async () => {
+  document.getElementById('btnDeleteEmployee').onclick = async (e) => {
     const id = document.getElementById('editId').value;
     const name = document.getElementById('editName').value;
     if (!confirm(`Xác nhận xóa nhân viên [${name}]?\nLưu ý: Peer vĩnh viễn trên ImmortalWrt sẽ bị thu hồi!`)) return;
+
+    const deleteBtn = e.target;
+    const originalText = deleteBtn.innerText;
+    deleteBtn.disabled = true;
+    deleteBtn.innerText = "Đang thu hồi Peer...";
+
     try {
       const response = await fetch('/api/delete-employee', {
         method: 'POST',
@@ -671,7 +697,12 @@
         closeEditModal();
         showManage();
       } else alert('Lỗi: ' + (result.error || result.message));
-    } catch { alert('Server đang bận hoặc lỗi kết nối!'); }
+    } catch {
+      alert('Server đang bận hoặc lỗi kết nối!');
+    } finally {
+      deleteBtn.disabled = false;
+      deleteBtn.innerText = originalText;
+    }
   };
 </script>
 </body>
