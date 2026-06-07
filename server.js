@@ -31,21 +31,18 @@ if (!fs.existsSync('./keys')) {
 }
 
 app.use((req, res, next) => {
-    let ip = req.socket.remoteAddress || '';
+    let rawIp = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
 
-    ip = ip.replace('::ffff:', '').trim();
+    let ip = rawIp.split(',')[0].replace('::ffff:', '').trim();
     if (ip === '::1') ip = '127.0.0.1';
 
-    if (ip === '127.0.0.1' || ip === 'localhost') {
-        const xForwardedFor = req.headers['x-forwarded-for'];
-        if (xForwardedFor) {
-            ip = xForwardedFor.split(',')[0].trim().replace('::ffff:', '');
-        } else {
-            ip = req.headers['cf-connecting-ip'] || ip;
-        }
-    }
-
     req.clientIp = ip;
+
+    // TƯỜNG LỬA LAYER 7 (WEB APPLICATION FIREWALL)
+    if (typeof blockedIPs !== 'undefined' && blockedIPs.has(ip)) {
+        console.log(`\n[WAF BLOCK] Kẻ tấn công (${ip}) cố lách qua Tên miền nhưng bị Node.js bóp nát kết nối!`);
+        return req.socket.destroy();
+    }
 
     if (req.path.startsWith('/mainPage')) {
         if (!ip.startsWith('10.10.')) {
@@ -166,6 +163,43 @@ app.post('/api/verify-2fa', (req, res) => {
             res.status(401).json({ success: false, message: "Mã xác thực không chính xác" });
         }
     });
+});
+
+app.post('/api/verify-strict-auth', (req, res) => {
+    const { username } = req.body;
+    const clientIp = req.clientIp;
+    const ipRole = getRoleByIP(clientIp);
+
+    connection.query(
+        `SELECT u.name, u.role, v.client_ip 
+         FROM users u 
+         LEFT JOIN vpn_configs v ON u.id = v.user_id 
+         WHERE u.username = ?`,
+        [username],
+        (err, results) => {
+            if (err || results.length === 0) return res.status(404).json({ error: 'Không tìm thấy user' });
+
+            const user = results[0];
+
+            if (ipRole !== 'unknown' && ipRole !== user.role) {
+                return res.json({
+                    valid: false,
+                    ipRole: ipRole,
+                    accountName: user.name
+                });
+            }
+
+            if (clientIp.startsWith('10.10.') && clientIp !== user.client_ip) {
+                return res.json({
+                    valid: false,
+                    ipRole: `VPN KHÁC CHỦ (${clientIp})`,
+                    accountName: user.name
+                });
+            }
+
+            res.json({ valid: true });
+        }
+    );
 });
 
 app.get('/api/users', (req, res) => {
@@ -311,39 +345,45 @@ const isValidIP = (ip) => {
 };
 
 app.post('/api/report-attack', async (req, res) => {
-    const { attacker_ip, attack_type, packet_rate } = req.body;
+    const raw_ip = req.body.attacker_ip || "";
+    const attacker_ip = raw_ip.trim();
+    const { attack_type, packet_rate } = req.body;
 
-    // --- KIỂM TRA ĐẦU VÀO ---
     if (!attacker_ip || !isValidIP(attacker_ip)) {
-        console.log(`[!] Cảnh báo: Nhận được IP không hợp lệ từ AI: ${attacker_ip}`);
+        console.log(`[!] Cảnh báo: Nhận được IP không hợp lệ từ AI: '${attacker_ip}'`);
         return res.status(400).json({ error: "Invalid Attacker IP format" });
     }
 
-    // --- KIỂM TRA CHỐNG SPAM ---
     if (blockedIPs.has(attacker_ip)) {
         return res.json({ status: "ignored", message: "IP is already blocked." });
     }
 
     blockedIPs.add(attacker_ip);
 
-    // --- IN LOG GIAO DIỆN ---
     console.log(`\n[ALARM - HỆ THỐNG HYBRID IDS PHÁT HIỆN TẤN CÔNG]`);
     console.log(`> Kẻ tấn công : ${attacker_ip}`);
     console.log(`> Phân loại   : ${attack_type || 'Unknown Type'}`);
     console.log(`> Tốc độ      : ${packet_rate || 0} gói/s`);
 
-    // --- THỰC THI LỆNH CÁCH LY CHỐNG XÂM NHẬP ---
     try {
+        let actionTaken = "Detected";
+
         if (attacker_ip.startsWith('10.10.')) {
-            // Xử lý chặn trên Firewall Router (mạng nội bộ)
-            const cmd = `iptables -I INPUT -s ${attacker_ip} -j DROP`;
+            const cmd = `nft insert rule inet fw4 input ip saddr ${attacker_ip} drop && nft insert rule inet fw4 forward ip saddr ${attacker_ip} drop`;
             await executeRouterCommand(cmd);
+            actionTaken = "Isolated via nftables on Router";
             console.log(`[✔ IPS] Đã cách ly IP nội bộ: ${attacker_ip} trên Firewall Router.`);
+
+            connection.query(
+                'INSERT INTO audit_logs (attacker_ip, attack_type, packet_rate, action_taken) VALUES (?, ?, ?, ?)',
+                [attacker_ip, attack_type, packet_rate, actionTaken]
+            );
+
             return res.json({ status: "success", message: "Router isolated successfully" });
 
         } else {
-            // Xử lý chặn trên Windows Firewall (vãng lai)
             const blockCmd = `netsh advfirewall firewall add rule name="AI_Block_${attacker_ip}" dir=in action=block remoteip=${attacker_ip}`;
+            actionTaken = "Blocked by Windows Host Firewall";
 
             exec(blockCmd, (error) => {
                 if (error) {
@@ -351,6 +391,11 @@ app.post('/api/report-attack', async (req, res) => {
                     blockedIPs.delete(attacker_ip);
                 } else {
                     console.log(`[✔ IPS] Đã tống cổ IP vãng lai: ${attacker_ip} bằng Windows Firewall.`);
+
+                    connection.query(
+                        'INSERT INTO audit_logs (attacker_ip, attack_type, packet_rate, action_taken) VALUES (?, ?, ?, ?)',
+                        [attacker_ip, attack_type, packet_rate, actionTaken]
+                    );
                 }
             });
             return res.json({ status: "success", message: "Windows Host isolated" });
@@ -360,6 +405,47 @@ app.post('/api/report-attack', async (req, res) => {
         blockedIPs.delete(attacker_ip);
         res.status(500).json({ error: "Lỗi thực thi hệ thống phòng vệ" });
     }
+});
+
+app.get('/api/unblock/:ip', async (req, res) => {
+    const target_ip = req.params.ip;
+
+    if (blockedIPs.has(target_ip)) {
+        blockedIPs.delete(target_ip);
+        console.log(`\n[♻️ SYSTEM] Đã xóa ${target_ip} khỏi sổ đen Node.js.`);
+    }
+    try {
+        if (target_ip.startsWith('10.10.')) {
+            await executeRouterCommand('fw4 reload');
+            console.log(`[✔ IPS] Đã mở cửa Firewall Router cho IP: ${target_ip}`);
+            res.send(`<h2>[THÀNH CÔNG] Đã tha bổng hoàn toàn cho IP: ${target_ip}</h2><p>Node.js đã quên IP này, Router đã mở cửa. Bạn có thể test tấn công lần 2!</p>`);
+        } else {
+            const unblockCmd = `netsh advfirewall firewall delete rule name="AI_Block_${target_ip}"`;
+            exec(unblockCmd);
+            console.log(`[✔ IPS] Đã gỡ chặn Windows Firewall cho IP: ${target_ip}`);
+            res.send(`<h2>[THÀNH CÔNG] Đã gỡ block Windows cho IP: ${target_ip}</h2>`);
+        }
+    } catch (error) {
+        res.status(500).send(`Xóa sổ đen thành công nhưng lỗi kết nối Router: ${error.message}`);
+    }
+});
+
+app.get('/api/blacklist', (req, res) => {
+    if (getRoleByIP(req.clientIp) !== 'boss') return res.status(403).json({ error: 'Chỉ Boss' });
+
+    connection.query('SELECT id, attacker_ip, attack_type, timestamp FROM audit_logs ORDER BY timestamp DESC', (err, results) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+
+        const blacklistData = results.map(row => ({
+            id: row.id,
+            ip: row.attacker_ip,
+            reason: row.attack_type || 'Unknown Anomaly',
+            status: blockedIPs.has(row.attacker_ip) ? 'Block' : 'Resolved',
+            date: row.timestamp
+        }));
+
+        res.json(blacklistData);
+    });
 });
 
 app.listen(port, '0.0.0.0', () => console.log(`✅ Server running on IPv4 port ${port}`));

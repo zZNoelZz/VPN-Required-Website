@@ -10,6 +10,7 @@
       --primary-dark: #0056b3;
       --danger: #dc3545;
       --danger-dark: #b52a37;
+      --success: #28a745;
       --sidebar-bg: #f7faff;
       --active-bg: #eaf0fb;
       --text: #222;
@@ -184,6 +185,35 @@
     .token-table tr:not(:last-child) td {
       border-bottom: 1px solid #e3eaf7;
     }
+    .status-badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      display: inline-block;
+    }
+    .status-block {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .status-resolved {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .btn-unblock {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      padding: 5px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: bold;
+      transition: background 0.2s;
+    }
+    .btn-unblock:hover {
+      background-color: #218838;
+    }
     @media (max-width: 900px) {
       .dashboard-main {
         flex-direction: column;
@@ -196,6 +226,7 @@
         border-bottom: 1px solid #e0e8f3;
         justify-content: center;
         padding: 0;
+        flex-wrap: wrap;
       }
       .main-content {
         padding: 24px 5vw 20px 5vw;
@@ -234,12 +265,10 @@
       margin: 0 0 12px 0;
       transition: all 0.2s;
     }
-
     #editEmployeeBtn {
       background-color: #f39c12;
       margin-bottom: 12px;
     }
-
     .btn-delete {
       background-color: #dc3545;
       color: white;
@@ -251,11 +280,9 @@
       height: 38px;
       transition: background 0.2s;
     }
-
     .btn-delete:hover {
       background-color: #a71d2a;
     }
-
     .custom-modal {
       display: none;
       position: fixed;
@@ -288,10 +315,10 @@
     .btn-cancel { background: #6c757d; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
     .btn-confirm { background: #007bff; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; }
   </style>
+</head>
 <body>
 
 <div class="dashboard-main">
-
   <nav class="sidebar">
     <div class="logo">
       <svg viewBox="0 0 40 40" fill="none">
@@ -310,6 +337,7 @@
     <button class="option" data-page="report"><span>📊</span> Báo cáo nhanh</button>
     <button class="option" data-page="calendar"><span>📅</span> Lịch làm việc</button>
     <button class="option" data-page="setting"><span>⚙️</span> Cài đặt</button>
+    <button class="option" data-page="blacklist" id="blacklist-btn"><span>🚫</span> Blacklist</button>
     <button class="option" data-page="about"><span>ℹ️</span> Thông tin công ty</button>
     <button class="option" data-page="me"><span>🙋‍♂️</span> Tôi</button>
     <button class="option logout" onclick="logout()"><span>🚪</span> Logout</button>
@@ -357,20 +385,17 @@
       <input type="text" id="editName" class="modal-input" placeholder="Họ và tên" required />
       <input type="text" id="editUsername" class="modal-input" placeholder="Username" required />
       <input type="password" id="editPassword" class="modal-input" placeholder="Password mới (để trống nếu giữ nguyên)" />
-
       <select id="editRole" class="modal-input">
         <option value="employee">Employee</option>
         <option value="leader">Leader</option>
         <option value="boss">Boss</option>
       </select>
-
       <div style="display: flex; gap: 10px;">
         <input type="number" id="editSalary" class="modal-input" placeholder="Lương" required />
         <input type="number" id="editExtra" class="modal-input" placeholder="Phụ cấp" required />
       </div>
       <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
         <button type="button" class="btn-delete" id="btnDeleteEmployee">Xóa nhân viên</button>
-
         <div style="display: flex; gap: 10px;">
           <button type="button" class="btn-cancel" onclick="closeEditModal()">Hủy</button>
           <button type="submit" class="btn-confirm">Lưu thay đổi</button>
@@ -380,9 +405,16 @@
   </div>
 </div>
 
+<div class="popup" id="strictAuthPopup" style="display:none; z-index: 10000; background: rgba(0,0,0,0.85);">
+  <div class="popup-content" style="border: 3px solid #dc3545; background: #fffafb; max-width: 450px;">
+    <h3 style="color: #dc3545; margin-top: 0; font-size: 1.4rem;">⚠️ Cảnh báo Bảo mật Zero Trust</h3>
+    <div id="strictAuthMessage" style="font-size: 1.1rem; color: #333; margin-bottom: 25px; line-height: 1.5;"></div>
+    <button onclick="forceLogout()" style="background: #dc3545; width: 100%; font-weight: bold; font-size: 1.1rem; padding: 12px;">Đăng xuất ngay (<span id="logoutCountdown">5</span>s)</button>
+  </div>
+</div>
+
 <script>
   const urlParams = new URLSearchParams(window.location.search);
-
   if (urlParams.get('username')) {
     sessionStorage.setItem('user_username', urlParams.get('username'));
     sessionStorage.setItem('user_password', urlParams.get('password'));
@@ -403,10 +435,49 @@
 
   window.addEventListener('DOMContentLoaded', async () => {
     const manageBtn = document.getElementById('manage-btn');
+    const blacklistBtn = document.getElementById('blacklist-btn');
+
     if (savedRole !== 'boss' && savedRole !== 'leader') {
       if (manageBtn) manageBtn.style.display = 'none';
     }
+
+    if (savedRole !== 'boss') {
+      if (blacklistBtn) blacklistBtn.style.display = 'none';
+    }
+
+    try {
+      const authRes = await fetch('/api/verify-strict-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: savedUser })
+      });
+      const authData = await authRes.json();
+
+      if (authData.valid === false) {
+        document.getElementById('strictAuthMessage').innerHTML =
+                `Bạn đang sử dụng VPN có role <b style="color:red; text-transform:uppercase;">${authData.ipRole}</b> nhưng đang truy cập tài khoản của người dùng <b style="color:blue;">${authData.accountName}</b>!`;
+
+        document.getElementById('strictAuthPopup').style.display = 'flex';
+
+        let timeLeft = 5;
+        const timer = setInterval(() => {
+          timeLeft--;
+          document.getElementById('logoutCountdown').innerText = timeLeft;
+          if (timeLeft <= 0) {
+            clearInterval(timer);
+            forceLogout();
+          }
+        }, 1000);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   });
+
+  window.forceLogout = () => {
+    sessionStorage.clear();
+    window.location.href = 'login.html';
+  };
 
   const options = document.querySelectorAll('.sidebar .option:not(.logout)');
   const mainContent = document.getElementById('main-content');
@@ -416,10 +487,12 @@
       options.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       const page = btn.getAttribute('data-page');
+
       if (page === 'me') showMe();
       else if (page === 'tokens') showTokens();
       else if (page === 'dashboard') showDashboard();
       else if (page === 'manage') showManage();
+      else if (page === 'blacklist') showBlacklist();
       else showPopup('Đang thực hiện...');
     };
   });
@@ -428,13 +501,14 @@
     document.getElementById('popup-message').innerHTML = msg;
     document.getElementById('popup').style.display = 'flex';
   };
+
   const closePopup = () => {
     document.getElementById('popup').style.display = 'none';
   };
 
   const showMe = () => {
     mainContent.innerHTML = `
-    <h2>Thông tin cá nhân</h2>
+    <h2>Thông cá nhân</h2>
     <div class="user-info">
       <strong>Username:</strong> <span>${savedUser}</span><br>
       <strong>Password:</strong> <span>${savedPass}</span>
@@ -483,6 +557,79 @@
       </table>`;
     } catch {
       document.getElementById('token-table-wrap').innerHTML = `<div style="color:#dc3545;">Không tải được dữ liệu token</div>`;
+    }
+  };
+
+  const showBlacklist = async () => {
+    mainContent.innerHTML = `
+    <h2>Quản lý Blacklist (IPS)</h2>
+    <div id="blacklist-table-wrap"><div>Đang tải dữ liệu báo cáo an ninh...</div></div>`;
+
+    try {
+      const res = await fetch('/api/blacklist');
+      if (!res.ok) throw new Error('Không có quyền truy cập hoặc lỗi máy chủ');
+      const records = await res.json();
+
+      if (records.length === 0) {
+        document.getElementById('blacklist-table-wrap').innerHTML = `<div>Hiện tại không có IP nào bị đưa vào sổ đen.</div>`;
+        return;
+      }
+
+      const rows = records.map(record => {
+        const dateObj = new Date(record.date);
+        const dateStr = dateObj.toLocaleString('vi-VN');
+        const badgeClass = record.status === 'Block' ? 'status-block' : 'status-resolved';
+        const actionBtn = record.status === 'Block'
+                ? `<button class="btn-unblock" onclick="confirmUnblock('${record.ip}')">Gỡ chặn</button>`
+                : `<span style="color: #666; font-size: 0.9em;">-</span>`;
+
+        return `
+        <tr>
+          <td style="font-weight: bold; color: var(--primary);">${record.id}</td>
+          <td style="font-family: monospace; font-size: 1.05em;">${record.ip}</td>
+          <td>${record.reason}</td>
+          <td><span class="status-badge ${badgeClass}">${record.status}</span></td>
+          <td>${dateStr}</td>
+          <td style="text-align: center;">${actionBtn}</td>
+        </tr>`;
+      }).join('');
+
+      document.getElementById('blacklist-table-wrap').innerHTML = `
+      <table class="token-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Địa chỉ IP</th>
+            <th>Lý do Block</th>
+            <th>Trạng thái</th>
+            <th>Ngày xử lý</th>
+            <th style="text-align: center;">Hành động</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    } catch (e) {
+      document.getElementById('blacklist-table-wrap').innerHTML = `<div style="color:#dc3545;">${e.message}</div>`;
+    }
+  };
+
+  window.confirmUnblock = async (ip) => {
+    if (!confirm(`CẢNH BÁO: Bạn có chắc chắn muốn gỡ chặn hệ thống cho IP [${ip}] không?`)) return;
+
+    try {
+      showPopup(`Đang xử lý gỡ chặn cho IP ${ip}...`);
+      const response = await fetch(`/api/unblock/${ip}`);
+      const text = await response.text();
+      closePopup();
+
+      if (response.ok) {
+        showBlacklist();
+      } else {
+        alert('Lỗi khi gỡ chặn: ' + text);
+      }
+    } catch (err) {
+      closePopup();
+      alert('Không thể kết nối đến máy chủ quản lý Firewall');
     }
   };
 
